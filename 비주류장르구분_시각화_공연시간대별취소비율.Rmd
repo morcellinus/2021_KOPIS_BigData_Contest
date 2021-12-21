@@ -1,0 +1,246 @@
+---
+title: "비주류장르구분_시각화_코로나 확진자와 장르별 평균 취소비율 비교"
+author: "Hyungyeong Hong"
+date: "9/13/2021"
+output: html_document
+---
+
+# 1. 기본 세팅
+## (1) working directory를 설정하고 필요한 패키지를 불러옵니다
+```{r, message = FALSE}
+setwd("/Users/hyungyeonghong/Desktop/kopis/rdata")
+library(tidyverse)
+library(data.table)
+library(lubridate)
+```
+
+## (2) 시각화에 사용할 전처리된 데이터를 불러옵니다
+```{r}
+load("data_filtered4.rda")
+```
+
+# 2. 데이터프레임 만들기
+## (1) 칼럼명 특수 기호 제거
+* 칼럼명에 특수 기호가 포함되어 코드 사용 시 오류가 발생할 수 있으므로, 특수 기호를 제거한 형태로 칼럼명을 변경합니다.
+```{r}
+data <- data %>% rename(예매취소구분 = '예매/취소구분', 예매취소매수 = '예매/취소매수')
+```
+
+## (2) 필요한 칼럼만 뽑아오기
+* 각 공연의 시간대별 취소표 비율 계산 준비단계로, 필요한 칼럼들만 뽑아오는 과정에 해당합니다.
+* 각 공연의 시간대별 취소표 비율은 (해당 시간대 취소표 총합 / 해당 시간대 예매표 총합)으로 이루어질 것 입니다.
+* 이 때, 한가지 주의해야 할 사항은 해당 시간대 예매표 총합에는 이후 취소된 표 역시 포함되어 있다는 것 입니다.
+* 필요한 데이터만 뽑아 bytime_df 변수에 저장 해 줍니다.
+```{r}
+bytime_df <- data %>% select(장르명, 공연코드, 공연일시, 예매일시, 공연장코드, 좌석수, 예매취소구분, 예매취소매수)
+```
+
+## (3) 공연 시간대별 예매건수 총합 구하기
+* 예매취소구분 == 1인 데이터만 필터링하여 예매 데이터만 추출한 후 각 공연의 시간대별로 그룹화를 진행합니다.
+* 그룹화 단계 이후, 해당 그룹에 대한 예매취소매수를 모두 합해줌으로써 각 공연의 시간대별 예매 건수를 계산합니다.
+* 한 가지 주의할 점은, 예매취소구분 == 1인 데이터에는 이후 취소된 표 까지 포함되어 있어, 추후 취소 비율을 구할 때 이 단계에서 구한 값을 분모에 두어야 한다는 점 입니다.
+* 계산 결과가 담긴 데이터프레임을 bytime_reserved_df 변수에 저장합니다.
+```{r}
+bytime_reserved_df <- bytime_df %>% filter(예매취소구분 == 1) %>%
+  group_by(공연코드, 공연일시) %>% summarise(예매건수총합 = sum(예매취소매수))
+```
+
+## (4) 공연 시간대별 취소건수 총합 구하기
+* 예매취소구분 == 2인 데이터만 필터링하여 취소 데이터만 추출한 후 각 공연의 시간대별로 그룹화를 진행합니다.
+* 그룹화 단계 이후, 해당 그룹에 대한 예매취소매수를 모두 합해줌으로써 각 공연의 시간대별 취소 건수를 계산합니다.
+* 계산 결과가 담긴 데이터프레임을 bytime_cancelled_df 변수에 저장합니다.
+```{r}
+bytime_cancelled_df <- bytime_df %>% filter(예매취소구분 == 2) %>%
+  group_by(공연코드, 공연일시) %>% summarise(취소건수총합 = sum(예매취소매수))
+```
+
+## (5) 공연 시간대별 예매건수 데이터와 취소건수 데이터 병합하기
+* full_join을 통해 예매건수총합, 취소건수총합 데이터를 합쳐줍니다.
+* 이 때, 두 데이터는 공연코드와 공연일시를 기준으로 합쳐집니다.
+* 병합한 데이터를 bytime_joined_df 변수에 저장합니다.
+```{r}
+bytime_joined_df <- full_join(bytime_reserved_df, bytime_cancelled_df, by = c("공연코드", "공연일시"))
+```
+
+* full_join시 특정 시간대에 예매건수총합 또는 취소건수총합이 없다면 NA값이 발생합니다.
+* 이 때, NA값은 실제로는 0을 의미하므로 NA값을 0으로 변경합니다.
+```{r}
+zero_idx1 <- is.na(bytime_joined_df$예매건수총합)
+zero_idx2 <- is.na(bytime_joined_df$취소건수총합)
+
+bytime_joined_df[zero_idx1,]$예매건수총합 <- 0
+bytime_joined_df[zero_idx2,]$취소건수총합 <- 0
+```
+
+## (6) 공연 시간대별 예매취소비율 계산
+* 병합된 데이터에서 취소건수총합 / 예매건수총합을 통해 취소 비율을 구해줍니다.
+* 해당 계산 결과를 동일 데이터프레임 내에서 '취소비율'이라는 칼럼으로 저장해줍니다.
+```{r}
+bytime_joined_df <- bytime_joined_df %>% mutate(취소비율 = 취소건수총합 / 예매건수총합)
+```
+
+## (7) 원 데이터에 칼럼 추가
+* 원 데이터와 bytime_joined_df(위에서 최종적으로 full_join과정을 거친 데이터프레임)을 left_join시켜 원 데이터에 예매건수총합, 취소건수총합, 예매취소건수총합, 취소비율 칼럼을 추가해줍니다.
+* 위의 연산을 거친 데이터프레임을 data_added 변수에 저장합니다.
+```{r}
+data_added <-left_join(data, bytime_joined_df, by = c("공연코드", "공연일시"))
+```
+
+## (8) 전국 코로나 확진자 수 데이터 불러오기
+* 서울시 코로나 19 확진자 수 데이터의 경우 대구 신천지 집단 감염 사태 등 국내의 전반적인 코로나19 상황을 반영하지 못하여 전국 데이터를 사용해야 합니다.
+* 사회적거리두기 단계가 지역별로 다르게 시행되고는 있지만 코로나에 대한 경각심은 전국의 확진자수에 영향을 받을 것이라 생각하여 전국 코로나19 확진자 수 데이터를 사용하였습니다.
+```{r}
+# 일별 전국 코로나 확진자 수 데이터를 불러옵니다
+covid_kor <- fread("covid_korea.csv")
+
+# 필요한 칼럼들만 뽑아온 후, 칼럼명을 변경합니다
+covid_kor <- covid_kor %>% select(V1, V2) %>% rename(공연일자 = V1, 확진자수 = V2) 
+
+# 첫번째, 두번째 row는 불필요하므로 제거한 후, 날짜 형식을 변경합니다
+covid_kor <- covid_kor[-(1:2), ] %>% mutate(공연일자 =  ymd(공연일자))
+
+# KOPIS 제공 데이터의 시점에 맞게 2020년 일별 확진자 수만 필터링합니다.
+covid_kor <- covid_kor %>% filter(year(공연일자) == 2020)
+
+# 확진자 수가 character로 표현되어 있으므로 이를 numeric 형태로 변경해줍니다.
+covid_kor$확진자수 <- covid_kor$확진자수 %>% str_remove_all(",") %>% as.numeric
+```
+
+## (9) 원 데이터와 전국 일별 코로나19 확진자 수 데이터 병합
+* 공연일자를 기준으로 한 left_join을 통해 전국 단위 코로나19 신규 확진자수를 나타내는 칼럼을 추가합니다.
+* 확진자가 없어 left_join 시 NA값이 생성되는데, 이 부분은 사실상 0을 의미하므로 NA를 0으로 변경합니다.
+```{r}
+bycovid_df <- data_added %>% select(공연코드, 장르명, 공연일시, 예매건수총합, 취소건수총합, 취소비율) %>% distinct %>% 
+  mutate(공연일자 = as.Date(공연일시))
+```
+
+* 공연 데이터와 코로나 확진자 수 데이터를 공연일자를 기준으로 병합해줍니다.
+```{r}
+bycovid_df <- left_join(bycovid_df, covid_kor, by = "공연일자")
+```
+
+* left_join을 했기 때문에 확진자 수가 없는 날의 확진자 수 값은 NA로 처리된 상태이므로, 이 NA 값들을 0으로 변경해줍니다.
+```{r}
+cases_na <- is.na(bycovid_df$확진자수) # 확진자수가 NA인 인덱스를 추출합니다
+bycovid_df$확진자수[cases_na] <- 0 # 해당 인덱스에 해당하는 확진자수 컬럼의 값을 0으로 바꾸어 줍니다
+```
+
+* 각 장르의 공연일자별로 일별취소건수총합, 일별예매건수총합, 일별예매취소건수총합(예매 + 취소), 일별취소비율을 계산랍니다.
+```{r}
+bycovid_summarised_df <- bycovid_df %>% group_by(장르명, 공연일자) %>% 
+  summarise(일별취소건수총합 = sum(취소건수총합), 일별예매건수총합 = sum(예매건수총합)) %>% 
+  mutate(일별취소비율 = 일별취소건수총합 / 일별예매건수총합)
+```
+
+* 전국 단위 코로나19 신규 확진자수를 나타내는 칼럼을 추가해줍니다.
+* 확진자가 없어 left_join 시 NA값이 생성되는데, 이 부분은 앞에서와 마찬가지로 사실상 0을 의미하므로 NA값을 0으로 변경합니다.
+```{r}
+bycovid_summarised_df <- left_join(bycovid_summarised_df, covid_kor, by = "공연일자")
+cases_na <- is.na(bycovid_summarised_df$확진자수)
+bycovid_summarised_df[cases_na,]
+bycovid_summarised_df$확진자수[cases_na] <- 0
+bycovid_summarised_df
+```
+
+
+# 3. 시각화
+* 플랏에서 한글이 깨지는 문제를 해결합니다. (맥 사용 시 해당 코드를 반드시 실행해야 합니다)
+```{r}
+theme_set(theme_minimal(base_family='NanumGothic'))
+```
+
+* 각 장르의 일별 공연 취소 비율과 코로나 확진자 수 추이를 시각화합니다.
+* gridExtra 패키지의 grid.arrange()를 이용하여 여러개의 플랏을 하나로 합칩니다.
+```{r}
+p1 <- bycovid_summarised_df %>% filter(장르명 == "뮤지컬") %>% 
+  ggplot(aes(x = as.factor(공연일자))) +
+  geom_line(aes(y = 일별취소비율), group = 1, color = "darkblue") +
+  geom_line(aes(y = 확진자수/1000), group = 1, color = "darkred") +
+  scale_y_continuous(sec.axis = sec_axis(~ . * 1000, name = "국내 확진자 수")) +
+  ggtitle("뮤지컬") +
+  xlab("공연일자") +
+  ylab("일별취소비율") +
+  theme(axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+```{r}
+p2 <- bycovid_summarised_df %>% filter(장르명 == "연극") %>% 
+  ggplot(aes(x = as.factor(공연일자))) +
+  geom_line(aes(y = 일별취소비율), group = 1, color = "darkblue") +
+  geom_line(aes(y = 확진자수/1000), group = 1, color = "darkred") +
+  scale_y_continuous(sec.axis = sec_axis(~ . * 1000, name = "국내 확진자 수")) +
+  ggtitle("연극") +
+  xlab("공연일자") +
+  ylab("일별취소비율") +
+  theme(axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+p3 <- bycovid_summarised_df %>% filter(장르명 == "국악") %>% 
+  ggplot(aes(x = as.factor(공연일자))) +
+  geom_line(aes(y = 일별취소비율), group = 1, color = "darkblue") +
+  geom_line(aes(y = 확진자수/1000), group = 1, color = "darkred") +
+  scale_y_continuous(sec.axis = sec_axis(~ . * 1000, name = "국내 확진자 수")) +
+  ggtitle("국악") +
+  xlab("공연일자") +
+  ylab("일별취소비율") +
+  theme(axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+p4 <- bycovid_summarised_df %>% filter(장르명 == "클래식") %>% 
+  ggplot(aes(x = as.factor(공연일자))) +
+  geom_line(aes(y = 일별취소비율), group = 1, color = "darkblue") +
+  geom_line(aes(y = 확진자수/1000), group = 1, color = "darkred") +
+  scale_y_continuous(sec.axis = sec_axis(~ . * 1000, name = "국내 확진자 수")) +
+  ggtitle("클래식") +
+  xlab("공연일자") +
+  ylab("일별취소비율") +
+  theme(axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+p5 <- bycovid_summarised_df %>% filter(장르명 == "무용") %>% 
+  ggplot(aes(x = as.factor(공연일자))) +
+  geom_line(aes(y = 일별취소비율), group = 1, color = "darkblue") +
+  geom_line(aes(y = 확진자수/1000), group = 1, color = "darkred") +
+  scale_y_continuous(sec.axis = sec_axis(~ . * 1000, name = "국내 확진자 수")) +
+  ggtitle("무용") +
+  xlab("공연일자") +
+  ylab("일별취소비율") +
+  theme(axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+p6 <- bycovid_summarised_df %>% filter(장르명 == "오페라") %>% 
+  ggplot(aes(x = as.factor(공연일자))) +
+  geom_line(aes(y = 일별취소비율), group = 1, color = "darkblue") +
+  geom_line(aes(y = 확진자수/1000), group = 1, color = "darkred") +
+  scale_y_continuous(sec.axis = sec_axis(~ . * 1000, name = "국내 확진자 수")) +
+  ggtitle("오페라") +
+  xlab("공연일자") +
+  ylab("일별취소비율") +
+  theme(axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+p7 <- bycovid_summarised_df %>% filter(장르명 == "복합") %>% 
+  ggplot(aes(x = as.factor(공연일자))) +
+  geom_line(aes(y = 일별취소비율), group = 1, color = "darkblue") +
+  geom_line(aes(y = 확진자수/1000), group = 1, color = "darkred") +
+  scale_y_continuous(sec.axis = sec_axis(~ . * 1000, name = "국내 확진자 수")) +
+  ggtitle("복합") +
+  xlab("공연일자") +
+  ylab("일별취소비율") +
+  theme(axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+```{r, fig.height = 6.5, fig.width = 6}
+gridExtra::grid.arrange(p1, p2, p3, p4, p5, p6, p7, ncol = 2)
+```

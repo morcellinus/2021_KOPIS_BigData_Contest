@@ -1,0 +1,332 @@
+---
+title: "장르별 좌석점유율과 코로나 확진자수 비교를 위한 전처리와 시각화"
+author: "Jinmo Lee"
+date: '2021 7 23 '
+output: html_document
+---
+
+*설명*
+
+공연장르별 좌석점유율과 코로나 확진자수의 추세 비교를 위한 전처리와 시각화 과정을 담은 코드입니다.
+
+-제공받은 데이터가 2020년의 데이터이고, 이에 따라 공연의 좌석점유율이 예년의 평균적인 수준보다 낮을 것으로 예상했습니다.
+-이에 제공받은 데이터와 동기간의 코로나 확진자수 데이터를 함께 고려해 코로나 확진자수의 증감이 좌석점유율 변화에 미치는 영향을 파악하려 합니다.
+-데이터 수집 시점부터 2021년 1월 1일까지의 확진자수 데이터는 삭제했습니다.
+
+## 1-1. 장르별 좌석점유율 및 코로나 확진자수 데이터 전처리
+
+```{r}
+
+# Data Load
+
+memory.limit(size = 56000)
+
+library(tidyverse)
+library(lubridate)
+
+load('C:/Users/samsung/Downloads/data_filtered4.rda')
+
+```
+
+```{r fig.width = 10, fig.height = 8}
+
+# 일별 코로나 확진자 데이터 불러오기
+corona <- readxl::read_excel('C:/Users/samsung/Desktop/코로나바이러스감염증-19_확진환자_발생현황_20210722.xlsx')
+
+# 필요없는 column 삭제
+corona <- corona[-1,]
+
+# 날짜를 나타내는 변수의 자료형을 날짜형으로 변경
+corona$일자 <- as.Date(as.Date('2020-01-20'):as.Date('2021-07-22'), origin = '1970-01-01')
+
+# 코로나 확진자수 시각화로 데이터 오류 확인
+corona %>%
+  ggplot() + 
+  theme_classic() + 
+  geom_line(aes(x = 일자, y = `계(명)`), color = 'royalblue1') + 
+  theme(axis.ticks.x=element_blank()) +
+  labs(x = '날짜', y = '하루확진자수', title = '코로나 바이러스 확진자 추이')
+
+# 좌석관련 오류가 없는 row만 가진 데이터를 새로운 변수명으로 복사
+posession_normal_2 <- posession_normal
+
+# 공연일시의 자료형을 문자형으로 변경
+posession_normal_2$공연일시 <- as.character(posession_normal_2$공연일시)
+
+# 좌석점유율 데이터의 공연일시 column을 공연날짜라는 이름으로 바꾸고 날짜 노출 형식을 코로나 데이터와 맞춰줌
+posession_normal2 <- posession_normal_2 %>%
+  mutate(공연날짜 = str_extract(공연일시, '(\\d)+[-](\\d)+[-](\\d)(\\d)'))
+
+# 좌석점유율 데이터의 공연날짜 변수 자료형을 날짜형으로 변경
+posession_normal2$공연날짜 <- as.Date(posession_normal2$공연날짜)
+
+# 코로나 확진자수 데이터와 좌석점유율 데이터를 동일한 날짜를 key값으로 하여 병합
+merged_data <- merge(posession_normal2, corona, by.x = '공연날짜', by.y = '일자', all = T)
+
+# 분석에 필요한 변수만 남기기
+merged_data <- merged_data %>%
+  select(공연날짜, 장르명, 공연코드, 공연일시, 좌석수, `1`, `2`, 실예매수, 좌석점유율, `계(명)`)
+
+# 데이터프레임 병합 과정에서 코로나 확진자수가 없는 날짜의 경우 NA로 표시하기에 이런 row를 찾아 0으로 값을 치환
+merged_data$`계(명)`[which(is.na(merged_data$`계(명)`))] <- 0
+```
+
+```{r}
+
+# 코로나 확진자 급증시기와 좌석점유율 변화 추이 간 상관관계 분석을 위한 기간 분할
+
+# 1월 1일 - 1월 19일: period1
+# 1월 20일 - 5월 5일: period2
+# 5월 6일 - 8월 15일: period3
+# 8월 16일 - 9월 14일: period4
+# 9월 15일 - 11월 18일: period5
+# 11월 19일 - 12월 31일: period6
+
+# 병합한 데이터프레임을 장르와 공연날짜를 기준으로 좌석점유율을 평균냄
+seat_posession_mean <- merged_data %>%
+  group_by(장르명, 공연날짜, `계(명)`) %>%
+  summarise(좌석점유율평균 = mean(`좌석점유율`))
+
+# Period1: 국내 코로나 첫 감염자 발생 이전
+period1 <- seat_posession_mean %>%
+  filter(공연날짜 >= as.Date('2020-01-01') & 공연날짜 <= as.Date('2020-01-19')) 
+
+# Period2: 첫 감염자 발생후 대구 중심 1차 유행기부터 1차 유행 종료
+period2 <- seat_posession_mean %>%
+  filter(공연날짜 >= as.Date('2020-01-20') & 공연날짜 <= as.Date('2020-05-05'))
+
+# Period3: 1차 유행 종료 후 안정기
+period3 <- seat_posession_mean %>%
+  filter(공연날짜 >= as.Date('2020-05-06') & 공연날짜 <= as.Date('2020-08-15'))
+
+# Period4: 여름 2차 대유행, 카페 내 상주 금지, 10시 이후 영업금지 등 조치 시행
+period4 <- seat_posession_mean %>%
+  filter(공연날짜 >= as.Date('2020-08-16') & 공연날짜 <= as.Date('2020-09-14'))
+
+# Period5: 여름 2차 대유행 종료 후 안정기
+period5 <- seat_posession_mean %>%
+  filter(공연날짜 >= as.Date('2020-09-15') & 공연날짜 <= as.Date('2020-11-18'))
+
+# Period6: 겨울 3차 대유행, 4인 이상 집합금지, 10시 이후 영업금지 등 조치 시행
+period6 <- seat_posession_mean %>%
+  filter(공연날짜 >= as.Date('2020-11-19') & 공연날짜 <= as.Date('2020-12-31'))
+
+# 단순 선형회귀로 좌석점유율평균과 코로나 확진자(구간별)의 선형 회귀 관계 분석
+model2 <- lm(좌석점유율평균 ~ `계(명)`, data = period2)
+model3 <- lm(좌석점유율평균 ~ `계(명)`, data = period3)
+model4 <- lm(좌석점유율평균 ~ `계(명)`, data = period4)
+model5 <- lm(좌석점유율평균 ~ `계(명)`, data = period5)
+model6 <- lm(좌석점유율평균 ~ `계(명)`, data = period6)
+
+summary(model2); summary(model3); summary(model4); summary(model5); summary(model6)
+
+```
+
+## 1-2. 각 장르별 좌석점유율과 코로나 확진자 데이터 병합 데이터프레임 생성
+
+```{r}
+
+# 좌석 관련 오류가 없는 데이터에서 각 장르별, 공연날짜별 총 예매수 계산
+by_genre_book2 <- posession_normal2 %>%
+  group_by(장르명, 공연날짜) %>%
+  summarise(예매합 = sum(`1`))
+
+# 좌석 관련 오류가 없는 데이터애서 각 장르별, 공연날짜별 총 취소수 계산
+by_genre_cancel2 <- posession_normal2 %>%
+  group_by(장르명, 공연날짜) %>%
+  summarise(취소합 = sum(`2`))
+
+# 좌석 관련 오류가 없는 데이터에서 각 장르별, 공연날짜별 전체 공연의 좌석수 합 계산
+by_genre_seat2 <- posession_normal2 %>%
+  group_by(장르명, 공연날짜) %>%
+  summarise(좌석수합 = sum(좌석수))
+
+# 총 취소수 별도 데이터프레임으로 저장
+취소합 <- as.data.frame(by_genre_cancel2$취소합)
+
+# 총 좌석수 별도 데이터프레임으로 저장
+좌석수합 <- as.data.frame(by_genre_seat2$좌석수합)
+
+# 위 두 데이터프레임과 총 예매수 데이터프레임 병합
+posession_mean2 <- cbind(by_genre_book2, 취소합, 좌석수합)
+
+# 병합한 데이터프레임의 변수명 변경
+posession_mean2 <- posession_mean2 %>%
+  rename('취소합' = `by_genre_cancel2$취소합`) %>%
+  rename('좌석수합' = `by_genre_seat2$좌석수합`)
+
+# 병합한 데이터프레임으로부터 예매합에서 취소합을 빼 실예매수를 구하고 이를 좌석수로 나누어 장르별 좌석점유율 계산
+posession_mean2 <- posession_mean2 %>%
+  mutate(실예매수합 = 예매합 - 취소합) %>%
+  mutate(장르별좌석점유율 = 실예매수합/좌석수합)
+
+# 변수명 변경
+posession_normal2 <- posession_mean2 %>%
+  rename('날짜별좌석점유율' = 장르별좌석점유율)
+
+# 코로나 확진자 데이터에서 확진자 처음 발생한 날짜부터 2020년 12월 31일까지만 추출
+corona <- corona[1:347,]
+
+# 국악 장르 좌석점유율과 코로나 확진자 병합
+merge_data_genre1 <- merge(corona, posession_normal2 %>% filter(장르명 == '국악'), by.x = '일자', by.y = '공연날짜', all = T)
+merge_data_genre1$`계(명)`[which(is.na(merge_data_genre1$`계(명)`))] <- 0
+merge_data_genre1$장르명[which(is.na(merge_data_genre1$장르명))] <- '국악'
+merge_data_genre1$날짜별좌석점유율[which(is.na(merge_data_genre1$날짜별좌석점유율))] <- 0
+
+# 복합 장르 좌석점유율과 코로나 확진자 병합
+merge_data_genre2 <- merge(corona, posession_normal2 %>% filter(장르명 == '복합'), by.x = '일자', by.y = '공연날짜', all = T)
+merge_data_genre2$`계(명)`[which(is.na(merge_data_genre2$`계(명)`))] <- 0
+merge_data_genre2$장르명[which(is.na(merge_data_genre2$장르명))] <- '복합'
+merge_data_genre2$날짜별좌석점유율[which(is.na(merge_data_genre2$날짜별좌석점유율))] <- 0
+
+# 클래식 장르 좌석점유율과 코로나 확진자 병합
+merge_data_genre3 <- merge(corona, posession_normal2 %>% filter(장르명 == '클래식'), by.x = '일자', by.y = '공연날짜', all = T)
+merge_data_genre3$`계(명)`[which(is.na(merge_data_genre3$`계(명)`))] <- 0
+merge_data_genre3$장르명[which(is.na(merge_data_genre3$장르명))] <- '클래식'
+merge_data_genre3$날짜별좌석점유율[which(is.na(merge_data_genre3$날짜별좌석점유율))] <- 0
+
+# 오페라 장르 좌석점유율과 코로나 확진자 병합
+merge_data_genre4 <- merge(corona, posession_normal2 %>% filter(장르명 == '오페라'), by.x = '일자', by.y = '공연날짜', all = T)
+merge_data_genre4$`계(명)`[which(is.na(merge_data_genre4$`계(명)`))] <- 0
+merge_data_genre4$장르명[which(is.na(merge_data_genre4$장르명))] <- '오페라'
+merge_data_genre4$날짜별좌석점유율[which(is.na(merge_data_genre4$날짜별좌석점유율))] <- 0
+
+# 무용 장르 좌석점유율과 코로나 확진자 병합
+merge_data_genre5 <- merge(corona, posession_normal2 %>% filter(장르명 == '무용'), by.x = '일자', by.y = '공연날짜', all = T)
+merge_data_genre5$`계(명)`[which(is.na(merge_data_genre5$`계(명)`))] <- 0
+merge_data_genre5$장르명[which(is.na(merge_data_genre5$장르명))] <- '무용'
+merge_data_genre5$날짜별좌석점유율[which(is.na(merge_data_genre5$날짜별좌석점유율))] <- 0
+
+# 연극 장르 좌석점유율과 코로나 확진자 병합
+merge_data_genre6 <- merge(corona, posession_normal2 %>% filter(장르명 == '연극'), by.x = '일자', by.y = '공연날짜', all = T)
+merge_data_genre6$`계(명)`[which(is.na(merge_data_genre6$`계(명)`))] <- 0
+merge_data_genre6$장르명[which(is.na(merge_data_genre6$장르명))] <- '연극'
+merge_data_genre6$날짜별좌석점유율[which(is.na(merge_data_genre6$날짜별좌석점유율))] <- 0
+
+# 뮤지컬 장르 좌석점유율과 코로나 확진자 병합
+merge_data_genre7 <- merge(corona, posession_normal2 %>% filter(장르명 == '뮤지컬'), by.x = '일자', by.y = '공연날짜', all = T)
+merge_data_genre7$`계(명)`[which(is.na(merge_data_genre7$`계(명)`))] <- 0
+merge_data_genre7$장르명[which(is.na(merge_data_genre7$장르명))] <- '뮤지컬'
+merge_data_genre7$날짜별좌석점유율[which(is.na(merge_data_genre7$날짜별좌석점유율))] <- 0
+
+# 각 장르별 병합된 데이터 다시 하나로 병합
+merge_data = rbind(merge_data_genre1,
+                   merge_data_genre2,
+                   merge_data_genre3,
+                   merge_data_genre4,
+                   merge_data_genre5,
+                   merge_data_genre6,
+                   merge_data_genre7)
+
+```
+
+## 1-3. 각 장르별 공연 횟수와 코로나 확진자 데이터 병합 데이터프레임 생성
+
+```{r}
+
+# 좌석 관련 오류가 없는 데이터를 새로운 변수명으로 복사
+posession_normal3 <- posession_normal
+
+# 공연일시 변수의 자료형을 날짜형으로 변경
+posession_normal3$공연일시 <- as.Date(posession_normal3$공연일시)
+
+# 장르별, 날짜별 하루 공연 횟수 계산
+stages_per_day <- posession_normal3 %>%
+  group_by(장르명, 공연일시) %>%
+  summarise(하루공연횟수 = n())
+
+# 국악 장르 하루공연횟수와 코로나 확진자 병합
+merge_stage1 <- merge(corona, stages_per_day %>% filter(장르명 == '국악'), by.x = '일자', by.y = '공연일시', all = T)
+merge_stage1$`계(명)`[which(is.na(merge_stage1$`계(명)`))] <- 0
+merge_stage1$장르명[which(is.na(merge_stage1$장르명))] <- '국악'
+merge_stage1$하루공연횟수[which(is.na(merge_stage1$하루공연횟수))] <- 0
+
+# 복합 장르 하루공연횟수와 코로나 확진자 병합
+merge_stage2 <- merge(corona, stages_per_day %>% filter(장르명 == '복합'), by.x = '일자', by.y = '공연일시', all = T)
+merge_stage2$`계(명)`[which(is.na(merge_stage2$`계(명)`))] <- 0
+merge_stage2$장르명[which(is.na(merge_stage2$장르명))] <- '복합'
+merge_stage2$하루공연횟수[which(is.na(merge_stage2$하루공연횟수))] <- 0
+
+# 클래식 장르 하루공연횟수와 코로나 확진자 병합
+merge_stage3 <- merge(corona, stages_per_day %>% filter(장르명 == '클래식'), by.x = '일자', by.y = '공연일시', all = T)
+merge_stage3$`계(명)`[which(is.na(merge_stage3$`계(명)`))] <- 0
+merge_stage3$장르명[which(is.na(merge_stage3$장르명))] <- '클래식'
+merge_stage3$하루공연횟수[which(is.na(merge_stage3$하루공연횟수))] <- 0
+
+# 오페라 장르 하루공연횟수와 코로나 확진자 병합
+merge_stage4 <- merge(corona, stages_per_day %>% filter(장르명 == '오페라'), by.x = '일자', by.y = '공연일시', all = T)
+merge_stage4$`계(명)`[which(is.na(merge_stage4$`계(명)`))] <- 0
+merge_stage4$장르명[which(is.na(merge_stage4$장르명))] <- '오페라'
+merge_stage4$하루공연횟수[which(is.na(merge_stage4$하루공연횟수))] <- 0
+
+# 무용 장르 하루공연횟수와 코로나 확진자 병합
+merge_stage5 <- merge(corona, stages_per_day %>% filter(장르명 == '무용'), by.x = '일자', by.y = '공연일시', all = T)
+merge_stage5$`계(명)`[which(is.na(merge_stage5$`계(명)`))] <- 0
+merge_stage5$장르명[which(is.na(merge_stage5$장르명))] <- '무용'
+merge_stage5$하루공연횟수[which(is.na(merge_stage5$하루공연횟수))] <- 0
+
+# 연극 장르 하루공연횟수와 코로나 확진자 병합
+merge_stage6 <- merge(corona, stages_per_day %>% filter(장르명 == '연극'), by.x = '일자', by.y = '공연일시', all = T)
+merge_stage6$`계(명)`[which(is.na(merge_stage6$`계(명)`))] <- 0
+merge_stage6$장르명[which(is.na(merge_stage6$장르명))] <- '연극'
+merge_stage6$하루공연횟수[which(is.na(merge_stage6$하루공연횟수))] <- 0
+
+# 뮤지컬 장르 하루공연횟수와 코로나 확진자 병합
+merge_stage7 <- merge(corona, stages_per_day %>% filter(장르명 == '뮤지컬'), by.x = '일자', by.y = '공연일시', all = T)
+merge_stage7$`계(명)`[which(is.na(merge_stage7$`계(명)`))] <- 0
+merge_stage7$장르명[which(is.na(merge_stage7$장르명))] <- '뮤지컬'
+merge_stage7$하루공연횟수[which(is.na(merge_stage7$하루공연횟수))] <- 0
+
+# 각 장르별 병합된 데이터 다시 하나로 병합
+merge_data2 = rbind(merge_stage1,
+                    merge_stage2,
+                    merge_stage3,
+                    merge_stage4,
+                    merge_stage5,
+                    merge_stage6,
+                    merge_stage7)
+
+```
+
+## 2. 장르별 좌석점유율/하루 공연횟수 및 코로나 확진자수 시각화
+
+```{r fig.width = 10, fig.height = 6}
+
+# 공통 범례 먼저 설정
+g <- merge_data %>%
+  ggplot(aes(x = 일자)) + theme_classic()
+
+# 코로나 확진자수 추이 시각화
+g <- g + geom_line(aes(y = `계(명)`), color = 'red') + labs(y = '하루확진자수')
+
+# 장르별, 날짜별 좌석점유율 추이 시각화
+g <- g+ geom_line(aes(y = 날짜별좌석점유율 * max(merge_data$`계(명)`), group = 장르명), color = 'royalblue1')
+
+# 좌우 y축 스케일 각각 설정
+g <- g + scale_y_continuous(sec.axis = sec_axis(~./max(merge_data$`계(명)`)), name = '날짜별좌석점유율균')
+
+# 장르별 그래프를 한 번에 표시
+g <- g + facet_wrap(~장르명, ncol = 3)
+
+```
+
+```{r fig.width = 10, fig.height = 6}
+
+# 공연횟수가 많은 연극과 뮤지컬을 제외한 장르만 가지고 공통 범례 먼저 설정
+g2 <- merge_data2 %>%
+  filter(장르명 == '국악' | 장르명 == '복합' | 장르명 == '클래식' | 장르명 == '오페라' | 장르명 == '무용') %>%
+  ggplot(aes(x = 일자)) + theme_classic()
+
+# 코로나 확진자수 추이 시각화
+g2 <- g2 + geom_line(aes(y = `계(명)`), color = 'red') + labs(y = '하루확진자수')
+
+# 장르별, 날짜별 공연횟수 추이 시각화
+g2 <- g2+ geom_line(aes(y = 하루공연횟수 * 1240/15, group = 장르명), color = 'royalblue1')
+
+# 좌우 y축 스케일 각각 설정
+g2 <- g2 + scale_y_continuous(sec.axis = sec_axis(~./(1240/15)), name = '하루공연횟수')
+
+# 장르별 그래프를 한 번에 표시
+g2 <- g2 + facet_wrap(~장르명, ncol = 3)
+
+```

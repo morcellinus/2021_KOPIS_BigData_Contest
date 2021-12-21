@@ -1,0 +1,249 @@
+---
+title: "장르별 판매시기 및 예매기간 시각화"
+author: "Jinmo Lee"
+date: '2021 7 22 '
+output: html_document
+---
+
+*설명*
+
+공연장르별 판매시기와 예매기간에 대한 시각화를 위한 코드입니다.
+
+날짜 관련 변수를 사용함으로써 각 장르의 공연에 소비자가 얼마나 민감하게 반응하는지를 확인하기 위함입니다.
+
+-(예매일시 - 판매시작일시): 판매가 시작된 후 얼마나 빨리 공연을 예매했는가
+-(공연일시 - 예매일시): 예매 후 공연까지 얼마나 기다리는가
+-(공연종료일시-공연시작일시): 공연존속기간
+
+## 1. 시각화를 위한 전처리
+
+```{r}
+
+# Data Load
+
+memory.limit(size = 56000)
+
+library(tidyverse)
+library(lubridate)
+
+load('C:/Users/samsung/Downloads/data_filtered4.rda')
+
+```
+
+```{r}
+
+# 판매시작일시가 NA인 row의 index -> 172,315개
+selldate_NA <- which(is.na(data$판매시작일시))
+
+
+# 판매시작일시가 NA인 것의 날짜를 예매일시 -28일 (2,419,200초, 4주)로 imputation
+data$판매시작일시[selldate_NA] <- data$예매일시[selldate_NA] - 2419200
+
+```
+
+```{r}
+
+# 판매시작일시가 9999인데 공연시작일자가 2020년 이전인 데이터의 인덱스 -> 212,242개
+before_2020_9999_idx <- which(year(data$판매시작일시) == 9999 & year(data$공연시작일자) < 2020)
+
+# 위와 같은 경우의 판매시작일시를 예매일시 -28일(2,419,200초, 4주)로 통일
+data$판매시작일시[before_2020_9999_idx] <- data$예매일시[before_2020_9999_idx] - 2419200
+
+# 판매시작일시가 9999인데 공연시작일자가 2020년인 데이터의 인덱스 -> 214,554개
+after_2020_9999_idx <- which(year(data$판매시작일시) == 9999 & year(data$공연시작일자) == 2020)
+
+# 위와 같은 경우의 판매시작일시를 예매일시- 28일(2,419,200초, 4주)로 통일
+data$판매시작일시[after_2020_9999_idx] <- data$예매일시[after_2020_9999_idx] - 2419200
+
+# 판매시작일시가 2099인 데이터의 인덱스 -> 746개
+after_2099_idx <- which(year(data$판매시작일시) == 2099)
+
+# 위와 같은 경우의 판매시작일시를 예매일시 -28일로 통일
+data$판매시작일시[after_2099_idx] <- data$예매일시[after_2099_idx] - 2419200
+
+# 판매시작일시가 그럼에도 불구하고 2020 이후인 데이터의 인덱스 -> 3,420개
+over_2020_idx <- which(year(data$판매시작일시) > 2020)
+
+# 위와 같은 경우의 판매시작일시를 예매일시 - 28일로 통일
+data$판매시작일시[over_2020_idx] <- data$예매일시[over_2020_idx] - 2419200
+
+```
+
+```{r}
+
+# 그럼에도 불구하고 예매일시가 판매시작일시보다 빠른 경우 # 262,670개
+time_machine <- which(as.Date(data$예매일시) - as.Date(data$판매시작일시) < 0)
+
+# 위와 같은 경우의 판매시작일시를 예매일시 - 28일로 통일
+data$판매시작일시[time_machine] <- data$판매시작일시[time_machine] - 2419200
+
+```
+
+```{r}
+
+# 예매표에 대한 공연존속일자를 담은 dataframe 생성
+data_time <- data %>%
+  
+  # 필요한 변수만 선택
+  select(장르명, 공연코드, 공연일시, 예매일시, `예매/취소구분`, 판매시작일시, 공연시작일자, 공연종료일자) %>%
+  
+  # 예매에 대한 데이터만 사용
+  filter(`예매/취소구분` == 1) %>%
+  
+  # 공연시작일시 공연종료일시을 불러내 공연의 상영 기간과 예매속도의 관계를 보려 함
+  mutate(공연존속기간 = difftime(공연종료일자, 공연시작일자, units = 'days')) %>%
+  select(장르명, 공연코드, 판매시작일시, 예매일시, 공연시작일자, 공연일시, 공연종료일자, 공연존속기간)
+
+# 날짜형 변수를 숫자형으로 변환
+data_time$공연존속기간 <- as.integer(data_time$공연존속기간)
+
+# 장르별 평균 공연 존속기간
+average_lasting_days <- data_time %>%
+  group_by(장르명) %>%
+  summarise(공연존속기간평균 = mean(공연존속기간))
+
+# 장르별 평균 예매 소요일
+average_booking_days <- data_time %>%
+  mutate(예매까지걸린시간 = difftime(예매일시, 판매시작일시, units = 'days')) %>%
+  group_by(장르명) %>%
+  summarise(장르별예매소요일평균 = mean(예매까지걸린시간))
+
+# 장르별 예매부터 공연까지 기간
+average_waiting_days <- data_time %>%
+  mutate(예매부터공연까지 = difftime(공연일시, 예매일시, units = 'days')) %>%
+  group_by(장르명) %>%
+  summarise(장르별예매부터공연까지걸린시간평균 = mean(예매부터공연까지))
+
+```
+
+## 2-1. 데이터 시각화
+
+```{r fig.width = 12, fig.height = 4}
+
+# 예매소요시간 시각화
+booking_days_plot <- average_booking_days %>%
+  ggplot() + theme_classic() + geom_col(aes(x = 장르명, y = 장르별예매소요일평균), 
+                                        color = 'forestgreen', fill = 'forestgreen', alpha = 0.7) +
+  labs(x = '장르명', y = '장르별예매소요일평균')
+
+# 공연존속기간 시각화
+lasting_days_plot <- average_lasting_days %>%
+  ggplot() + theme_classic() + geom_col(aes(x = 장르명, y = 공연존속기간평균), 
+                                        color = 'royalblue1', fill = 'royalblue1', alpha = 0.7) +
+  labs(x = '장르명', y = '공연존속기간평균')
+
+# 예매후 공연까지 시간 시각화
+waiting_days_plot <- average_waiting_days %>%
+  ggplot() + theme_classic() + geom_col(aes(x = 장르명, y = 장르별예매부터공연까지걸린시간평균), 
+                                        color = 'orangered', fill = 'orangered', alpha = 0.7) +
+  labs(x = '장르명', y = '장르별예매부터공연까지걸린시간평균')
+
+gridExtra::grid.arrange(booking_days_plot, lasting_days_plot, waiting_days_plot, ncol = 3)
+
+```
+
+## 2-2. 2020년부터 판매가 시작된 공연 건에 대한 것만 비교
+
+```{r fig.width = 12, fig.height = 6}
+
+# 장르별 평균 공연 존속기간
+average_lasting_days_2020 <- data_time %>%
+  
+  # 2020년에 판매시작된 공연만 남기기
+  filter(year(판매시작일시) == 2020) %>%
+  group_by(장르명) %>%
+  summarise(공연존속기간평균 = mean(공연존속기간))
+
+# 장르별 평균 예매 소요일
+average_booking_days_2020 <- data_time %>%
+  
+  # 2020년에 판매시작된 공연만 남기기
+  filter(year(판매시작일시) == 2020) %>%
+  mutate(예매까지걸린시간 = difftime(예매일시, 판매시작일시, units = 'days')) %>%
+  group_by(장르명) %>%
+  summarise(장르별예매소요일평균 = mean(예매까지걸린시간))
+
+# 장르별 예매부터 공연까지 기간
+
+average_waiting_days_2020 <- data_time %>%
+  
+  # 2020년에 판매시작된 공연만 남기기
+  filter(year(판매시작일시) == 2020) %>%
+  mutate(예매부터공연까지 = difftime(공연일시, 예매일시, units = 'days')) %>%
+  group_by(장르명) %>%
+  summarise(장르별예매부터공연까지걸린시간평균 = mean(예매부터공연까지))
+
+# 예매소요시간 시각화
+booking_days_2020_plot <- average_booking_days_2020 %>%
+  ggplot() + theme_classic() + geom_col(aes(x = 장르명, y = 장르별예매소요일평균), 
+                                        color = 'forestgreen', fill = 'forestgreen', alpha = 0.7) +
+  labs(x = '장르명', y = '장르별예매소요일평균')
+
+# 공연존속기간 시각화
+lasting_days_2020_plot <- average_lasting_days_2020 %>%
+  ggplot() + theme_classic() + geom_col(aes(x = 장르명, y = 공연존속기간평균), 
+                                        color = 'royalblue1', fill = 'royalblue1', alpha = 0.7) +
+  labs(x = '장르명', y = '공연존속기간평균')
+
+# 예매후 공연까지 시간 시각화
+waiting_days_2020_plot <- average_waiting_days_2020 %>%
+  ggplot() + theme_classic() + geom_col(aes(x = 장르명, y = 장르별예매부터공연까지걸린시간평균), 
+                                        color = 'orangered', fill = 'orangered', alpha = 0.7) +
+  labs(x = '장르명', y = '장르별예매부터공연까지걸린시간평균')
+
+# 시각화자료 한 번에 보이기
+gridExtra::grid.arrange(booking_days_plot, lasting_days_plot, waiting_days_plot,
+                        booking_days_2020_plot, lasting_days_2020_plot, waiting_days_2020_plot, nrow = 2, ncol = 3)
+```
+
+## 2-3. 위에서 판매일시 오류의 경우 일괄 28일을 빼주었던 경우를 단순 삭제 imputation으로 변경 후 다시 계산
+
+```{r fig.width = 10, fig.height = 10}
+
+data_time2 <- data[-after_2020_9999_idx,]
+
+data_time2 <- data_time2[-after_2099_idx,]
+
+# 28일로 일괄 적용한 row를 다 삭제하고 시도해보기
+
+# 장르별 평균 공연 존속기간
+average_lasting_days_delete <- data_time2 %>%
+  group_by(장르명) %>%
+  summarise(공연존속기간평균 = mean(공연존속기간))
+
+# 장르별 평균 예매 소요일
+average_booking_days_delete <- data_time2 %>%
+  mutate(예매까지걸린시간 = difftime(예매일시, 판매시작일시, units = 'days')) %>%
+  group_by(장르명) %>%
+  summarise(장르별예매소요일평균 = mean(예매까지걸린시간))
+
+# 장르별 예매부터 공연까지 기간
+average_waiting_days_delete <- data_time2 %>%
+  mutate(예매부터공연까지 = difftime(공연일시, 예매일시, units = 'days')) %>%
+  group_by(장르명) %>%
+  summarise(장르별예매부터공연까지걸린시간평균 = mean(예매부터공연까지))
+
+# 예매소요시간 시각화
+booking_days_delete_plot <- average_booking_days_delete %>%
+  ggplot() + theme_classic() + geom_col(aes(x = 장르명, y = 장르별예매소요일평균), 
+                                        color = 'forestgreen', fill = 'forestgreen', alpha = 0.7) +
+  labs(x = '장르명', y = '장르별예매소요일평균')
+
+# 공연존속기간 시각화
+lasting_days_delete_plot <- average_lasting_days_delete %>%
+  ggplot() + theme_classic() + geom_col(aes(x = 장르명, y = 공연존속기간평균), 
+                                        color = 'royalblue1', fill = 'royalblue1', alpha = 0.7) +
+  labs(x = '장르명', y = '공연존속기간평균')
+
+# 예매후 공연까지 시간 시각화
+waiting_days_delete_plot <- average_waiting_days_delete %>%
+  ggplot() + theme_classic() + geom_col(aes(x = 장르명, y = 장르별예매부터공연까지걸린시간평균), 
+                                        color = 'orangered', fill = 'orangered', alpha = 0.7) +
+  labs(x = '장르명', y = '장르별예매부터공연까지걸린시간평균')
+
+# 시각화자료 한 번에 보이기
+gridExtra::grid.arrange(booking_days_plot, lasting_days_plot, waiting_days_plot,
+                        booking_days_2020_plot, lasting_days_2020_plot, waiting_days_2020_plot, 
+                        booking_days_delete_plot, lasting_days_delete_plot, waiting_days_delete_plot,nrow = 3, ncol = 3)
+
+```

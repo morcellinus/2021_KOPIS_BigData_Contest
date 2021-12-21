@@ -1,0 +1,538 @@
+---
+title: "Data Merge"
+author: "Ko"
+date: '2021 7 19 '
+output: html_document
+---
+
+시작하기에 앞서, tidyverse의 pipe operator `%>%`를 사용하여 한번에 해결할 수 있는 과정도 있었으나 RAM의 한계로 나누어 진행한 코드가 많습니다. 
+
+# 필요한 패키지 로드
+```{r message=FALSE, warning=FALSE}
+library(data.table)
+library(tidyverse)
+library(lubridate)
+```
+
+
+# 기본적인 전처리
+분석을 본격적으로 진행하기에 앞서 데이터의 용량이 너무 커 이를 해결하는 과정이 필요했습니다. 아래는 데이터 용량을 줄이기 위한 가장 기본적인 전처리 과정입니다.
+
+## 1. 데이터 저장
+월별, 주별로 나뉜 데이터를 분기별로 합치고, 서울 예매 건만 남김
+```{r}
+# 기존에 받은 데이터가 xlsx 형식이라 엑셀 프로그램 내에서 자체적으로 csv로 변환 후, 모든 전처리 과정은 R에서 진행함.
+# 아래 과정은 데이터 용량이 너무 커 용량을 고려하여 r 자체 데이터 파일 형식인 rda 형식으로 저장하는 과정.
+
+# 1월
+jan1 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.01.01-2020.01.10.csv")
+jan2 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.01.11-2020.01.20.csv")
+jan3 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.01.21-2020.01.31.csv")
+jan = rbind(jan1, jan2, jan3, use.names = F)
+remove(jan1, jan2, jan3)
+
+# 2월 
+feb1 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.02.01-2020.02.15.csv")
+feb2 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.02.16-2020.02.29.csv")
+feb = rbind(feb1, feb2, use.names = F)
+remove(feb1, feb2)
+
+# 3월
+mar = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.03월.csv")
+
+# 4월
+apr = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.04월.csv", encoding = "UTF-8")
+
+# 5월
+may = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.05월.csv", encoding = "UTF-8")
+
+# 6월
+jun = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.06월.csv", encoding = "UTF-8")
+
+# 7월
+jul = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.07월.csv", encoding = "UTF-8")
+
+
+# 8월
+aug1 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.08.01-2020.08.15.csv", encoding = "UTF-8")  
+aug2 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.08.16-2020.08.31.csv", encoding = "UTF-8")  
+aug = rbind(aug1, aug2, use.names = F)
+remove(aug1, aug2)
+
+
+# 9월
+sep = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.09월.csv", encoding = "UTF-8")
+
+# 10월
+oct = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.10월.csv", encoding = "UTF-8")  
+
+# 11월
+nov1 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.11.01-2020.11.15.csv", encoding = "UTF-8")  
+nov2 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.11.16-2020.11.30.csv", encoding = "UTF-8")  
+nov = rbind(nov1, nov2, use.names = F)
+remove(nov1, nov2)
+
+# 12월
+dec1 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.12.01-2020.12.15.csv", encoding = "UTF-8")  
+dec2 = fread("data/csv/빅데이터 분석 공모전 raw data 추출_2020.12.16-2020.12.31.csv", encoding = "UTF-8")  
+dec = rbind(dec1, dec2, use.names = F)
+remove(dec1, dec2)
+
+
+# 1,2,3,4 분기로 정리
+quater1 = rbind(jan, feb, mar, fill = T)
+quater2 = rbind(apr, may, jun, fill = T)
+quater3 = rbind(jul, aug, sep, fill = T)
+quater4 = rbind(oct, nov, dec, fill = T)
+
+
+# 1,2,3,4 분기 전처리 전혀 하지 않은 raw data 저장 (확장자명 : .rda)
+save(quarter1,"data/rda/오리지널 1분기.rda")
+save(quarter2,"data/rda/오리지널 2분기.rda")
+save(quarter3,"data/rda/오리지널 3분기.rda")
+save(quarter4,"data/rda/오리지널 4분기.rda")
+
+
+# 분석 목적에 맞게 서울 지역에서 열렸던 공연 예매 건만 추출
+quarter1 = quarter1 %>% filter(공연지역명 == "서울")
+quarter2 = quarter2 %>% filter(공연지역명 == "서울")
+quarter3 = quarter3 %>% filter(공연지역명 == "서울")
+quarter4 = quarter4 %>% filter(공연지역명 == "서울")
+
+# 서울 예매 건만 있는 데이터를 whole_data라는 변수에 저장
+whole_data = rbind(quarter1,quarter2,quarter3,quarter4, use.names = F)
+
+# 분기별 데이터 삭제
+remove(list = c("quarter1", "quarter2", "quarter3", "quarter4"))
+
+# 서울 예매 건 데이터를 .rda 파일로 저장
+save(whole_data, file="data/rda/서울전체raw.rda")
+```
+
+## 2. 데이터 용량 줄이기 
+전부 character 자료형이라 숫자형으로 변환하는 등 가볍게 바꿀 수 있는 것들의 자료형을 바꿈
+약간의 데이터 상의 오류도 수정함(주로 공연장주소 칼럼)
+```{r}
+# raw data load
+load("data/rda/서울전체raw.rda")
+
+
+whole_data = whole_data %>% 
+  
+  # 분석 방향에 맞추어 필요하지 않은 열들은 제거
+  select(-c("전송사업자코드","전송사업자명","예매/취소방식코드","예매방식명","결제수단코드","할인종류코드","소요시간","출연진내용","제작진내용","기획제작사명","극작가명","수상실적","축제 여부", "공연지역명")) %>% 
+  select(-contains("무대시설")) 
+
+whole_data = whole_data %>% 
+  # 일부 데이터 앞뒤로 공백이 있는 데이터가 있어 공백을 모두 제거
+  mutate_all(str_trim)
+
+
+# 주소와 공연시설코드가 고유하게 매칭되지 않는 것들이 있어 맞춤 (총 3개)
+# 또한 주소에 <U+0020>처럼 공백을 나타내는 유니코드가 문자열로 있어 이를 삭제해주는 과정도 포함되어 있음
+sisul_idx1 <- which(whole_data$공연시설코드 == "FC223420")
+whole_data$주소[sisul_idx1] <- "서울특별시 종로구 대학로 57 홍익대학교대학로캠퍼스"
+whole_data[sisul_idx1] %>% select(주소) %>% unique
+remove(sisul_idx1)
+
+sisul_idx2 <- which(whole_data$공연시설코드 == "FC223216")
+whole_data$주소[sisul_idx2] <- "서울특별시 종로구 혜화로 10-3 성인빌딩"
+whole_data[sisul_idx2] %>% select(주소) %>% unique
+remove(sisul_idx2)
+
+sisul_idx3 <- which(whole_data$공연시설코드 == "FC223116")
+whole_data$주소[sisul_idx3] <- "서울특별시 용산구 독서당로 111 (한남동, 한남더힐)"
+whole_data[sisul_idx3] %>% select(주소) %>% unique
+remove(sisul_idx3)
+
+
+# 데이터 용량 줄이는 함수 정의
+data_diet = function(data){
+  
+  # Y, N 값만 들어있는 column명 추출
+  YN_vars = data %>% select(contains("여부")) %>% colnames
+  
+  # 전처리 과정
+  data = data %>%
+    
+    mutate_all(na_if, "NULL") %>% # "NULL"을 NA로 변경
+    mutate_at(all_of(YN_vars), function(x) {fifelse(x == "Y", 1, 0, na = NA)}) %>%  # Y면 1, N면 0으로 변환, NA는 NA로 남김
+    mutate_at(vars(개관연도, 좌석수, 장애인석, `예매/취소구분`, `예매/취소매수`, 예매금액, 할인금액, 장당금액), as.numeric) %>% # 해당 열들을 숫자(numeric) 자료형으로 변경
+    
+    # 문자열 자료형을 날짜 자료형으로 변경 (lubridate libarary 사용)
+    mutate_at(vars("판매시작일시"), ymd_hms) %>% 
+    mutate_at(vars("공연일시", "예매일시"), ymd_hm) %>% 
+    mutate_at(vars("공연시작일자", "공연종료일자"), ymd) 
+  
+  return(data)
+}
+
+
+# 바로 위의 정의한 함수로 데이터 용량 줄임
+whole_data = data_diet(whole_data)
+```
+
+
+# 본격적인 데이터 전처리
+
+## 1. 예매는 없고 취소만 있는 데이터 오류라고 판단 후 삭제
+```{r}
+# 입장권고유번호 기준으로 예매 건수보다 취소 건수가 많은 데이터는 오류라고 판단하여, 해당 입장권고유번호를 가진 데이터는 모두 제거
+# 오류 입장권고유번호 저장 (총 125,125개)
+ticket_no = whole_data[, .N, by = c("입장권고유번호", "공연코드", "공연일시", "예매/취소구분")] %>% 
+  spread(key = "예매/취소구분", value = "N") %>% 
+  replace_na(replace = list(`1` = 0,
+                           `2` = 0)) %>% 
+  filter( `1` < `2` ) %>% 
+  select(-`1`,-`2`)
+
+# 제거 후 데이터 수 10558092개, data에 저장
+data = anti_join(whole_data, ticket_no, by = c("입장권고유번호", "공연코드", "공연일시"))
+
+# whole_data는 제거
+remove(whole_data)
+
+```
+
+## 2. 데이터 가격 보정 전처리
+
+가격 변수들은 분석에서 상당히 중요한 변수라고 생각했습니다. 때문에 가격 데이터의 존재하는 오류들을 최대한 섬세하게 처리해줄 필요성을 느꼈습니다. 그래서 굉장히 케이스를 여러 개로 구분해놓았습니다. 코드 이전에 대략적인 케이스를 기술하면 아래와 같습니다.
+
+1) 무료
+- 데이터 상에서 무료라고 판단할 수 있는 경우입니다. 무료라고 판단할 수 있는 경우는 코드 블럭 내에 기술되어 있습니다.
+
+
+2) 유료
+- 무료를 제외한 나머지 경우입니다.
+  이 경우에는 가격 관련 3가지 변수 (예매금액, 장당금액, 할인금액) 이 관계를 맞춰주는 것이 중요했습니다.
+  이 과정에서 케이스를 굉장히 자세하게 구분했습니다.
+  케이스를 구분한 이유는 *장당금액 = 할인금액 + 예매금액* 관계가 성립한다는 조건을 맞추기 위함입니다.
+
+  <케이스 구분>
+  1) 장당금액이 0 아님 & 예매금액 0 아님
+    이 경우에 할인금액이랑 관계가 맞지 않는 8만 여건을 처리했습니다.
+    상당수가 장당금액(원가)이 이미 예매금액(할인된 금액)으로 써진 경우였기에 예매금액+할인금액을 장당금액으로 맞추었습니다.
+    소수 데이터를 처리한 방법은 코드 블럭 내에 있습니다.
+    
+  2) 장당금액이 0  & 예매금액 0 아님
+    이 경우는 할인금액이 모두 0이어서 장당금액과 예매금액을 일치시켜주었습니다.
+    따로 할인 혹은 무료 여부를 알 수 없었습니다.
+    소수 데이터를 처리한 방법은 코드 블럭 내에 있습니다.
+  
+  3) 장당금액이 0 & 예매금액 0 아님
+    대부분이 할인금액이 0이었기 때문에 장당금액과 예매금액을 일치시켜주었습니다.
+    이 역시 따로 할인 혹은 무료 여부를 알 수 없었습니다.
+    소수 데이터를 처리한 방법은 코드 블럭 내에 있습니다.
+  
+  4) 장당금액이 0 & 예매금액 0
+    이 경우는 대부분이 할인금액까지 0이었습니다. 가격 정보를 전혀 알 수 없었지만,
+    여기에 해당하는 데이터가 전체의 30%를 차지했기에 삭제하지 않고 다른 방법으로 처리했습니다.
+    좌석등급으로부터 가격정보를 추출하여 좌석등급 내 가격의 중앙값으로 장당금액과 예매금액을 대체했습니다. 할인금액은 0으로 두었습니다.
+    예시) 좌석등급 A석(66,000),B석(55,000),C석(44,000) 이면 -> 장당금액과 예매금액을 동일하게 55000으로 대체
+    소수 데이터를 처리한 방법은 코드 블럭 내에 있습니다.
+
+이 과정을 통해 후에 시각적 방법을 통해 장르별 차이를 확인하기 위해 유료여부, 할인여부, 할인율 파생변수를 생성했으며 유료,할인을 모르는 경우를 -1로 대체했습니다.
+
+### 1. 유무료 구분 
+```{r}
+
+# 좌석등급이 NA인 경우 예매,할인,장당금액 모두 0원, 결제수단명에는 현금, 무료결제, 유보석, 초대권, 기타
+# 이중 "현금, 기타, 유보석"은 금액을 판단할 수 없고 (2892건) // "무료결제, 초대권"은 정가를 알 수는 없지만 "무료관람"인 경우로 간주함. (3285건)
+# 이를 아래 코드로 확인
+data %>% 
+  filter(is.na(좌석등급)) %>% 
+  select(좌석등급, 예매금액, 할인금액, 장당금액, 결제수단명) %>% 
+  lapply(unique)
+
+# 가격정보를 알 수 없어 유무료 여부를 판단할 수 없는 2892개 제거
+data = data %>% 
+  filter( !(is.na(좌석등급) & 결제수단명 %in% c("현금", "기타", "유보석")) )
+
+
+# 제거 후 확실하게 무료로 간주할 수 있는 것 304,162개
+free = data %>% 
+  filter( str_detect(좌석등급, "무료") |
+            str_detect(결제수단명,  "초대|무료|0원|문화나눔석|교환권|예매권") |
+            str_detect(할인종류명, "초대|무료|교환권|예매권") |
+            (장당금액 != 0 & 예매금액 == 0 & 장당금액 - 할인금액 == 0))
+
+# 제거 후 무료가 아닌 예매 건들 notfree 변수에 저장
+notfree = anti_join(data, free, by = c("입장권고유번호", "공연일시", "공연코드",  "예매일시"))
+remove(data)
+```
+
+### 2. 유료 데이터 전처리
+
+case 1 : 장당금액 0 아님 / 예매금액 0 아님
+```{r}
+# 장당금액 0 아님 / 예매금액 0 아님 / 5,100,966
+# 1. 할인이랑 관계 맞음 5,016,847
+# 2. 할인이랑 관계 안맞음 84,119
+# 2-1. 장당금액이 이미 할인된 가격으로 쓰여진 경우(좌석 등급 내 가격과 비교해봄) 80,514 
+# 2-2. 관계를 알 수 없음 3,605  
+
+###############################################################################################
+# 1. 정상적인 것 / 5,016,847
+# 후에 정제 후 각각 합쳐주기 위해 pay1 변수에 저장
+pay1 = notfree %>% 
+  filter( 장당금액 != 0 & 예매금액 != 0 ) %>% 
+  filter( 예매금액 == 장당금액 - 할인금액 ) %>% 
+  mutate(유료여부 = 1 ,
+         할인율 = round(할인금액/장당금액, digits = 2),
+         할인여부 = fifelse(할인율 > 0, 1, 0))
+
+###############################################################################################
+# 2. 비정상적인 것, 할인금액이랑 관계 이상함 / 84,119
+# 장당금액이 이미 할인된 가격으로 쓰여진 경우인지 확인하기 위함
+# 이를 위해서 좌석등급 내 가격 정보가 필요했음
+seat_cost = notfree %>% 
+  
+  # case 1 장당금액 0아님, 예매금액 0아님
+  filter( 장당금액 != 0 ) %>% 
+  filter( 예매금액 != 0 ) %>% 
+  
+  # 장당금액 = 예매금액 + 할인금액 관계 안맞는 것들만 추출
+  filter( 예매금액 != 장당금액 - 할인금액 ) %>% 
+  
+  # 정가를 맞춰주기
+  mutate( 정가 = 장당금액 + 할인금액 ) %>% 
+  select(정가, 좌석등급, 장당금액, 할인종류명) %>% 
+  
+  # 좌석등급 내 가격과 정가를 비교하기 위해 좌석등급에서 가격정보 추출 
+  mutate(가격 = (str_extract_all(좌석등급, "[0-9]+"))) %>% 
+  select(정가, 가격)
+
+# 임시 변수 생성
+seat_cost$같음 = -1
+
+# 정가랑 (좌석등급표에 있는)가격이 일치하는 것이 하나라도 있으면 같음 = 1
+for (i in 1:nrow(seat_cost)){
+  seat_cost[i,"같음"] = fifelse(seat_cost$정가[i] %in% as.numeric(seat_cost$가격[[i]]), 1, 0)
+}
+
+# 장당금액이 이미 할인된 가격으로 쓰여진 경우 / 80514개 
+seat_cost %>% group_by(같음) %>% summarise(n())
+
+##########################################################################
+# 2-1. 장당금액 = 예매금액 / 예매금액 + 할인금액 = 좌석등급 내의 가격과 일치하는 / 80,514 
+pay2 = notfree %>% 
+  filter( 장당금액 != 0 ) %>% 
+  filter( 예매금액 != 0 ) %>% 
+  filter( 장당금액 - 할인금액 != 예매금액 ) %>% 
+  mutate(같음 = seat_cost$같음) %>% 
+  filter(같음 == 1) %>% 
+  mutate(장당금액 = 할인금액 + 예매금액,
+         유료여부 = 1,
+         할인율 = round(할인금액/장당금액, digits = 2),
+         할인여부 = fifelse(할인율 > 0, 1, 0)) %>% 
+  select(-같음) %>% 
+  relocate(colnames(pay1))
+
+##########################################################################
+# 2-2. 관계를 모르겠는 것들 / 3,605개  
+# 예매금액, 할인금액, 장당금액 간 관계 보정
+# 할인금액이 대부분  1000의 배수여서 예매금액을 보정한 후에 할인금액을 더해 장당금액을 만듦
+notfree[입장권고유번호 == "1242213", "예매금액"] = 10050
+notfree[입장권고유번호 == "1242213", "할인금액"] = 45000
+notfree[입장권고유번호 == "1242213", "장당금액"] = 55000
+
+pay3 = notfree %>% 
+  filter( 장당금액 != 0 ) %>% 
+  filter( 예매금액 != 0 ) %>% 
+  filter( 장당금액 - 할인금액 != 예매금액 ) %>% 
+  mutate(같음 = seat_cost$같음) %>% 
+  filter(같음 == 0) %>% 
+  mutate( 예매금액 = (예매금액 %/% 500) * 500,
+         장당금액 = 예매금액 + 할인금액,
+         유료여부 = 1,
+         할인율 = round(할인금액/장당금액,2),
+         할인여부 = ifelse(할인율 > 0, 1, 0)) %>% 
+  select(-같음) %>% 
+  relocate(colnames(pay1))
+
+```
+
+case 2 : 장당금액 0 / 예매금액 0 아님
+```{r}
+# 장당금액 0 / 예매금액 0 아님 / 1,883,516
+# 할인금액 모두 0 
+# 장당금액 = 예매금액 일치시켜줌, but 할인여부 모름!
+# 할인여부 모르므로 할인율 -1(모름), 할인여부 -1(모름)
+pay4 = notfree %>% 
+  filter(장당금액 == 0 & 예매금액 != 0 ) %>% 
+  mutate(장당금액 = 예매금액 + 할인금액,
+             유료여부 = 1,
+             할인율 = -1,
+             할인여부 = -1) %>% 
+  relocate(colnames(pay1))
+```
+
+case 3 : 장당금액 0 아님 / 예매금액 0
+```{r}
+# 장당금액 0 아님 / 예매금액 0 / 6,858
+# 3-1 할인금액이 0 / 6,854
+# 3-1 할인금액이 0 아님 / 4
+# 할인금액이 0이 아닌 것들은 금액을 유추할 수 없어서 기존 공식대로 장당금액 - 할인금액을 예매금액으로 넣음
+pay5 = notfree %>% 
+  filter( 장당금액 != 0 & 예매금액 == 0 ) %>%
+  mutate(예매금액 = 장당금액 - 할인금액,
+             유료여부 = 1,
+             할인율 = round(할인금액/장당금액, digits = 2),
+             할인여부 = fifelse(할인율 > 0, 1, 0)) %>% 
+  relocate(colnames(pay1))
+```
+
+case 4 : 장당금액 0 / 예매금액 0
+```{r}
+# 장당금액 0 / 예매금액 0 / 3,259,697
+# 할인금액이 0임 / 3,248,200 <- 좌석 가격 중앙값으로 대체
+# 할인금액이 0이 아님 / 11,497 / 
+
+########################################################################################
+# 4. 장당금액 0 예매금액 0 / 3,259,996
+notfree[ 장당금액 == 0 & 예매금액 == 0, .N]
+
+########################################################################################
+# 4-1. 할인금액 0 / 3,248,200
+notfree[ 장당금액 == 0 & 예매금액 == 0 & 할인금액 == 0, ][, .(결제수단명, 할인종류명, 좌석등급)]
+# 할인종류명 중 실제 할인인 것은 ARKO할인만 존재하는 듯 약 325만개중 23개로 매우 적음
+notfree[ 장당금액 == 0 & 예매금액 == 0 & 할인금액 == 0, ][, .(결제수단명, 할인종류명, 좌석등급)][,.N,by="할인종류명"]
+# 결제수단은 3,230,358(99.4%)개가 현금 나머지는 다양하게 조금씩
+notfree[ 장당금액 == 0 & 예매금액 == 0 & 할인금액 == 0, ][, .(결제수단명, 할인종류명, 좌석등급)][,.N,by="결제수단명"]
+
+
+# 할인종류도 없고, 대부분 현금결제인 점을 고려하면 정확한 가격을 알 수 없음
+# 해결 : 좌석 정보에서 어떻게든 대체한다 -> 좌석 총 가격의 중앙값으로 대체, 더 robust함
+# 평균으로 대체한다면 좌석간 편차가 큰 공연장의 평균 가격이 높게 책정될 수 있음 
+
+# 좌석등급별 가격 추출
+seat_cost2 = notfree[ 장당금액 == 0 & 예매금액 == 0 & 할인금액 == 0, ][, .(좌석등급)] %>% summarise(좌석등급 = unique(좌석등급)) %>% 
+  mutate(가격정보=str_extract_all(좌석등급, "\\([0-9]+\\)"))
+
+
+# 가격 중앙값 구하기
+seat_cost2$가격중앙값 = 0
+for (i in 1:nrow(seat_cost2)){
+  seat_cost2[i, "가격중앙값"] = str_extract_all(seat_cost2$가격정보[[i]], "[0-9]+") %>% unlist %>% as.numeric %>% median
+}
+seat_cost2 = seat_cost2 %>% select(좌석등급, 가격중앙값)
+
+# 장당금액과 예매금액을 가격 중앙값으로 대체
+pay6 = notfree %>% 
+  filter( 장당금액 == 0 & 예매금액 == 0 & 할인금액 == 0 ) %>% 
+  left_join(seat_cost2, by = "좌석등급") %>%
+  mutate(예매금액 = 가격중앙값,
+             장당금액 = 가격중앙값,
+             유료여부 = 1,
+             할인여부 = -1,
+             할인율 = -1,
+             .keep = "unused") %>% 
+  relocate(colnames(pay1))
+
+
+########################################################################################
+# 4-2. 할인금액 0 아님 / 11,497
+notfree[ 장당금액 == 0 & 예매금액 == 0 & 할인금액 != 0, ][,.(할인금액, 결제수단명, 할인종류명, 좌석등급)]
+
+
+# 할인가 = 좌석가격 인 것들은 전액 할인 받았다고 생각 / 10,828
+seat_cost3 = notfree[ 장당금액 == 0 & 예매금액 == 0 & 할인금액 != 0, ][,.(할인금액, 결제수단명, 할인종류명, 좌석등급)]%>% summarise(좌석등급 = unique(좌석등급)) %>% 
+   mutate(가격정보=str_extract_all(좌석등급, "\\([0-9]+\\)")) %>% 
+  right_join(notfree[ 장당금액 == 0 & 예매금액 == 0 & 할인금액 != 0, ], by = "좌석등급")
+
+# 할인가 좌석가격에 존재하면 `있음` = 1
+seat_cost3$있음 = -1
+for (i in 1:nrow(seat_cost3)){
+  seat_cost3[i,"있음"] = fifelse( seat_cost3$할인금액[i] %in% (str_extract_all(seat_cost3$가격정보[[i]], "[0-9]+") %>% unlist %>% as.numeric), 1, 0)
+}
+
+# 다음과 같은 경우, 무료라고 간주함
+# 예매금액이 0원이고, 할인금액만 존재하는 경우, 전액 할인 받았다고 간주
+free2 = seat_cost3 %>% 
+  filter(있음 == 1) %>% 
+  select(-가격정보, -있음) %>% 
+  mutate(장당금액 = 할인금액,
+             예매금액 = 0,
+             유료여부 = 0,
+             할인여부 = 1,
+             할인율 = 1) %>% 
+  relocate(colnames(pay1))
+
+
+# 할인금액이 좌석금액의 일부인 경우 / 669
+seat_cost4 = seat_cost3 %>% filter(있음 != 1) 
+
+
+seat_cost4$할인율 = -1
+for (i in 1:nrow(seat_cost4)){
+ dc_cost = seat_cost4$할인금액[i]
+ real_cost = (str_extract_all(seat_cost4$가격정보[[i]], "[0-9]+") %>% unlist %>% as.numeric)
+ dc_rate = round(dc_cost/real_cost, digits = 4)
+ dc_rate = dc_rate[(dc_rate*10) %% 1 == 0][1]
+ 
+ seat_cost4[i,"할인율"] = dc_rate
+}
+
+seat_cost4[is.na(seat_cost4$할인율),"할인율"] = c(.25, .1, .3, .1, .3)
+
+pay7 = seat_cost4 %>% 
+  select(-가격정보, -있음) %>% 
+  mutate( 장당금액 = 할인금액/할인율,
+         예매금액 = 장당금액 - 할인금액,
+         유료여부 = fifelse(예매금액 > 0 , 1 ,0),
+         할인여부 = fifelse(할인율 > 0 , 1 ,0)
+         ) %>% 
+  relocate(colnames(pay1))
+
+
+```
+
+
+가격 보정된 데이터 통합
+```{r}
+
+# 무료 데이터에 파생변수 만들어 줌
+free1 = free %>% 
+  mutate(
+    유료여부 = 0,
+    할인여부 = 1,
+    할인율 = 1) %>% 
+  relocate(colnames(pay1))
+
+
+# 임시 변수 제거
+remove(c("seat_cost1", "seat_cost2","seat_cost3","seat_cost4","free","notfree"))
+
+# 정제된 무료, 유료 건 데이터 저장
+free = rbind(free1, free2, use.names = F)
+notfree = rbind(pay1,pay2, use.names = F) %>% rbind(pay3,pay4, use.names = F) %>% rbind(pay5,pay6,pay7, use.names = F)
+
+# 임시 변수 제거
+remove(c("free1","free2","pay1","pay2","pay3","pay4","pay5","pay6","pay7"))
+```
+
+
+# 최종 데이터 저장
+```{r}
+# 무료+유료 데이터
+data = rbind(free, notfree, use.names = F)
+
+# 임시 변수 제거
+remove(c("free","notfree"))
+
+# 금액 전처리 된 데이터를 다음과 같은 곳에 .rda로 저장
+# 분석에 사용할 최종 데이터
+save(data, file = "data/csv/data_filtered4.rda")
+```
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,85 @@
+---
+title: "Untitled"
+author: "Ko"
+date: '2021 9 11 '
+output: html_document
+---
+
+*설명*
+비주류 공연 장르를 구분하기 위해 클러스터링에 사용할 데이터를 만듭니다.
+개별 row는 공연회차를 의미하며 그때의 column(변수)은 유료비율, 좌석점유율, 취소비율, 예매시간차평균 입니다.
+
+## 비주류 공연 장르 정의를 위한 클러스터링
+* 클러스터링 데이터 만들기
+```{r}
+# 패키지 로드
+library(tidyverse)
+library(data.table)
+
+# 데이터 로드
+load("data/rda/data_filtered4.rda")
+```
+
+
+```{r}
+# 회차별 유료비율
+pay = data %>%
+  filter(`예매/취소구분`==1) %>% 
+  group_by(장르명, 공연코드, 공연일시) %>% 
+  summarise(
+    총예매수 = n(),
+    유료관객비율 = sum(유료여부)/총예매수) %>%
+  mutate_if(is.numeric, round, digits = 2) %>% 
+  select(-총예매수)
+
+# 회차별 좌석점유율
+posession = data %>%
+  group_by(장르명, 공연코드, 공연일시, 좌석수, `예매/취소구분`) %>%
+  summarise(count = n()) %>%
+  spread(key = '예매/취소구분', value = 'count') %>% 
+  replace_na(replace = list(`1`=0,
+                            `2`=0)) %>% 
+  mutate(실예매수 = `1` - `2`) %>%
+  mutate(좌석점유율 = 실예매수/좌석수) %>%
+  filter(좌석점유율 >= 0 & 좌석점유율 <= 1) %>%
+  ungroup %>% 
+  select(장르명, 공연코드, 공연일시, 좌석점유율) %>% 
+  distinct(공연코드, 공연일시, .keep_all = T)
+
+
+# 회차별 (공연일시 - 예매일시) 시간차
+timediff = data %>% rename("예매취소구분" = "예매/취소구분", "예매취소매수" = "예매/취소매수") %>% 
+  select(장르명, 공연코드, 공연일시, 예매일시, 판매시작일시, 판매종료일시, 예매취소구분, 예매취소매수) %>% 
+  mutate(시간차 = difftime(공연일시, 예매일시, units = "mins")) %>%
+  mutate(시간차 = as.numeric(시간차) / 1440) %>% 
+  filter(시간차 >= 0) %>% group_by(장르명, 공연코드, 공연일시) %>% 
+  summarise(시간차평균 = mean(시간차))
+
+# 회차별 취소율
+bytime_reserved_df <- data %>% filter(`예매/취소구분` == 1) %>%
+  group_by(공연코드, 공연일시) %>%
+  summarise(예매건수총합 = sum(`예매/취소매수`))
+
+bytime_cancelled_df <- data %>% filter(`예매/취소구분` == 2) %>%
+  group_by(공연코드, 공연일시) %>%
+  summarise(취소건수총합 = sum(`예매/취소매수`))
+
+bytime_joined_df <- full_join(bytime_reserved_df, bytime_cancelled_df, by = c("공연코드", "공연일시"))
+
+cancel_rate = bytime_joined_df %>% 
+  replace_na(replace = list(예매건수총합 = 0,
+                                  취소건수총합 = 0)) %>% 
+  mutate(취소비율 = 취소건수총합 / 예매건수총합) %>% 
+  select(-contains("총합")) %>% 
+  ungroup()
+
+
+# 클러스터링 데이터 생성
+clustdata = inner_join(pay, posession, by = c("공연코드", "공연일시")) %>%
+  inner_join(timediff, by = c("공연코드", "공연일시")) %>% 
+  inner_join(cancel_rate, by = c("공연코드", "공연일시")) %>% 
+  select(장르명 = 장르명.x, 공연코드, 공연일시, contains("율"), 시간차평균)
+
+# 클러스터링 데이터 저장
+write_csv(clustdata, "data/csv/clutering_genre.csv")
+```

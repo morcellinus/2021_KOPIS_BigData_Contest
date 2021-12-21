@@ -1,0 +1,170 @@
+---
+title: "Untitled"
+author: "Jinmo Lee"
+date: '2021 7 28 '
+output: html_document
+---
+
+*설명*
+
+비주류 장르를 클러스터링을 통해 구분하기 위한 데이터프레임을 생성하는 코드입니다.
+
+-좌석점율, 예매소요시간, 유료관객비율, 예매취소비율을 변수로 갖는 데이터프레임을 생성했습니다.
+-이 때 row는 오류가 제거되거나 impute 된 데이터 추출한 각 공연회차(같은 공연이더라도 다른 일시에 상연하면 다른 회차)입니다. 
+
+## 1.클러스터링을 위한 최종 변수 데이터프레임
+
+```{r}
+
+# Data Load
+
+memory.limit(size = 56000)
+
+library(tidyverse)
+library(lubridate)
+
+load('C:/Users/samsung/Downloads/data_filtered4.rda')
+
+```
+
+```{r}
+
+# 좌석점유율 변수 만들기
+posession <- data %>%
+  group_by(장르명, 공연코드, 공연일시, 좌석수, `예매/취소구분`) %>%
+  summarise(count = n()) %>%
+  
+  # 예매와 취소가 구분되어 있는 칼럼을 각 예매/취소로 구분해서 spread
+  spread(key = '예매/취소구분', value = 'count')
+
+# 취소건이 없는 경우 NA로 표시되므로 0으로 값을 치환
+posession$`2`[which(is.na(posession$`2`))] <- 0 
+
+# 예매건이 없는 경우 NA로 표시되므로 0으로 값을 치환
+posession$`1`[which(is.na(posession$`1`))] <- 0
+
+# 좌석점유율 변수 만들기
+posession <- posession %>%
+  
+  # 예매건수에서 취소건수를 빼 실예매수를 계산
+  mutate(실예매수 = `1` - `2`) %>%
+  
+  # 실예매수를 좌석수로 나누어 좌석점유율 계산
+  mutate(좌석점유율 = 실예매수/좌석수) %>%
+  
+  # 좌석점유율은 0부터 1사이의 값만 가지므로 해당 범위의 값을 갖는 경우만 남김
+  filter(좌석점유율 >= 0 & 좌석점유율 <= 1) %>%
+  group_by(장르명, 공연코드, 공연일시, 좌석점유율) %>%
+  select(장르명, 공연코드, 공연일시, 좌석점유율)
+
+# 예매시간 변수 만들기
+booking_time <- data %>% 
+  
+  # 변수명 변경
+  rename("예매취소구분" = "예매/취소구분", "예매취소매수" = "예매/취소매수") %>% 
+  
+  # 필요한 변수만 남기기
+  select(장르명, 공연코드, 공연일시, 예매일시, 판매시작일시, 판매종료일시, 예매취소구분, 예매취소매수) %>% 
+  
+  # 예매를 한 시점부터 그 공연이 열리기까지의 시간차를 분단위로 계산
+  mutate(시간차 = difftime(공연일시, 예매일시, units = "mins")) %>%
+  
+  # 그 분단위 시간차를 1440분으로 나누어 일 단위로 계산
+  mutate(시간차 = as.numeric(시간차) / 1440) %>% 
+  
+  # 공연일시 - 예매일시는 반드시 0보다 커야하기 때문에 해당 조건을 맞추는 경우만 남김
+  filter(시간차 >= 0) %>% 
+  
+  # 각 공연회차별로 예매시점부터 공연일시까지 시간차를 평균냄
+  group_by(장르명, 공연코드, 공연일시) %>% 
+  summarise(시간차평균 = mean(시간차))
+
+# 유료비율 변수 만들기
+money <- data %>%
+  
+  # 예매건만을 남기기
+  filter(`예매/취소구분`==1) %>% 
+  
+  # 공연회차별로 변수 생성
+  group_by(장르명, 공연코드, 공연일시) %>% 
+  
+  # 총예매수를 구한 후 유료 여부의 합으로 나누어서 유료관객비율 변수 생성
+  summarise(
+    총예매수 = n(),
+    유료관객비율 = sum(유료여부)/총예매수) %>%
+  
+  # 수치형변수인 경우 두 번째자리에서 반올림하게 함
+  mutate_if(is.numeric, round, digits = 2) %>% 
+  
+  # 더 이상 쓰임이 없는 변수 삭제
+  select(-총예매수)
+
+# 취소비율 변수 만들기
+df <- data %>% 
+  
+  # 필요한 변수만 남긴 데이터프레임 별도 저장
+  rename(예매취소구분 = '예매/취소구분', 예매취소매수 = '예매/취소매수') %>% 
+  select(장르명, 공연코드, 공연일시, 예매일시, 공연장코드, 좌석수, 예매취소구분, 예매취소매수)
+
+# 예매건에 해당하는 데이터프레임 생성
+bytime_reserved_df <- df %>% 
+  filter(예매취소구분 == 1) %>%
+  group_by(공연코드, 공연일시) %>% 
+  summarise(예매건수총합 = sum(예매취소매수))
+
+# 취소건에 해당하는 데이터프레임 생성
+bytime_cancelled_df <- df %>% 
+  filter(예매취소구분 == 2) %>%
+  group_by(공연코드, 공연일시) %>% 
+  summarise(취소건수총합 = sum(예매취소매수))
+
+# 위으 두 데이터프레임을 공연회차를 기준으로 병합
+bytime_joined_df <- full_join(bytime_reserved_df, bytime_cancelled_df, by = c("공연코드", "공연일시"))
+
+# 각 건수가 NA인 경우의 인덱스 추출
+zero_idx1 <- is.na(bytime_joined_df$예매건수총합)
+zero_idx2 <- is.na(bytime_joined_df$취소건수총합)
+
+# 그 인덱스에 해당하는 관측값은 0으로 값을 치환
+bytime_joined_df[zero_idx1,]$예매건수총합 <- 0
+bytime_joined_df[zero_idx2,]$취소건수총합 <- 0
+
+# 전체 예매건 중 취소건의 비율을 구해 취소비율 계산
+bytime_joined_df <- bytime_joined_df %>% 
+  mutate(취소비율 = 취소건수총합 / 예매건수총합)
+
+# 필요한 변수만 남기기
+bytime_joined_df <- bytime_joined_df %>%
+  select(공연코드, 공연일시, 취소비율)
+
+# 좌석점유율 데이터프레임에서 공연회차의 유니크만 남기기
+posession_true <- posession %>%
+  ungroup() %>%
+  distinct(공연코드, 공연일시, .keep_all = T)
+
+# 최종 데이터 병합
+
+# 좌석점유율 + 유료비율
+all <- inner_join(posession_true, money, by = c('공연코드', '공연일시'))
+
+# 좌석점유율 + 유료비율 + 취소비율
+all <- inner_join(all, bytime_joined_df, by = c('공연코드', '공연일시'))
+
+# 좌석점유율 + 유료비율 + 취소비율 + 예매후공연까지시간
+all <- inner_join(all, booking_time, by = c('공연코드', '공연일시'))
+
+# 초종 데이터프레임에서 필요한 변수만 남기고 변수명 변경
+all <- all %>%
+  select(장르명.x, 공연코드, 공연일시, 좌석점유율, 유료관객비율, 취소비율, 시간차평균) %>%
+  rename(장르명 = '장르명.x')
+
+# 변수의 이름을 clustering_data로 변경
+clustering_data <- all
+
+# 데이터 저장
+save(clustering_data, file = 'C:/Users/samsung/desktop/clustering_data.rda')
+
+write.csv(all, 'C:/Users/samsung/desktop/clustering_data.csv')
+
+```
+

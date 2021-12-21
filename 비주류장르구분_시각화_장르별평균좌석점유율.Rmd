@@ -1,0 +1,136 @@
+---
+title: "장르별 좌석점유율 시각화를 위한 전처리와 시각화 결과"
+author: "Jinmo Lee"
+date: '2021 7 19 '
+output: html_document
+---
+
+*설명*
+
+공연장르별 좌석점유율 비교를 위한 전처리와 시각화 과정을 담은 코드입니다.
+
+-좌석 관련 오류가 있는 걸 확인하고 먼저 전처리했습니다.
+-장르별 평균은 해당 장르 공연의 (총 예매수-총 취소수)/(총 좌석수)로 구했습니다.
+
+## 1-1. 장르별 좌석점유율 시각화를 위한 전처리
+
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+
+# Data Load
+
+memory.limit(size = 56000)
+
+library(tidyverse)
+library(lubridate)
+
+load('C:/Users/samsung/Desktop/KOPIS/final_code/제출용 데이터/data_filtered4.rda')
+
+```
+
+```{r message = FALSE, warning = FALSE}
+
+# 필요한 칼럼만 남긴 후 각 공연회차별로 예매와 취소를 나타내는 column을 spread 함수를 통해 따로 분리
+posession <- data %>%
+  group_by(장르명, 공연코드, 공연일시, 좌석수, `예매/취소구분`) %>%
+  summarise(count = n()) %>%
+  spread(key = '예매/취소구분', value = 'count')
+
+# 취소가 없는 경우 NA로 표시되므로 0으로 값을 치환
+posession$`2`[which(is.na(posession$`2`))] <- 0 
+
+# 예매가 없는 경우 NA로 표시되므로 0으로 값을 치환
+posession$`1`[which(is.na(posession$`1`))] <- 0
+
+# 각 공연회차별 좌석점유율 계산
+posession <- posession %>%
+  
+  # 예매수에서 취소수를 빼서 실예매수 계산
+  mutate(실예매수 = `1` - `2`) %>%
+  
+  # 실예매수를 좌석수로 나누어 좌석점유율 계산
+  mutate(좌석점유율 = 실예매수/좌석수) %>%
+  
+  # 좌석점유율은 0부터 1까지의 숫자만 가질 수 있으므로 그 밖의 수를 갖는 경우는 삭제 (ex) Inf, -Inf, NA 등
+  filter(좌석점유율 >= 0 & 좌석점유율 <= 1) %>%
+  group_by(장르명, 공연코드, 공연일시, 좌석점유율) %>%
+  select(장르명, 공연코드, 공연일시, 실예매수, 좌석점유율, `1`, `2`, 좌석수)
+
+# 좌석점유율 정상치 (0부터 1까지) (41,716개)
+posession_normal <- posession %>%
+  filter(좌석점유율 >= 0 & 좌석점유율 <= 1)
+
+# 좌석점유율 이상치 (0과 1사이가 아닌 경우) (715개)
+posession_outlier <- posession %>%
+  filter(좌석점유율 > 1 | 좌석점유율 < 0 | 좌석점유율 == 'NaN')
+
+# 좌석점유율이 infinity로 나오는 경우: 좌석수가 0으로 표시된 row (225개)
+posession_outlier_inf <- posession_outlier %>%
+  filter(좌석점유율 == Inf)
+
+# 좌석점유율이 1보다 큰 경우: 실예매수가 좌석수보다 큰 경우 (Over booking? Error?) (461개)
+posession_outlier_over_one <- posession_outlier %>%
+  filter(좌석점유율 > 1 & 좌석점유율 < Inf)
+
+# 좌석점유율이 0보다 작은 경우: 취소건이 예매건보다 많아 실예매수가 음수인 경우 (0개)
+posession_outlier_minus <- posession_outlier %>%
+  filter(좌석점유율 < 0)
+
+# 좌석점유율이 NaN인 경우: 실예매수와 좌석수가 모두 0인 경우 (29개)
+posession_outlier_NaN <- posession_outlier %>%
+  filter(좌석점유율 == 'NaN')
+
+```
+
+## 1-2. 장르별로 좌석점유율을 만들기 위한 과정
+
+```{r fig.width = 6, fig.height = 4}
+
+# 좌석 관련 오류가 없는 데이터만을 사용해 장르별 총 예매수 계산
+by_genre_book <- posession_normal %>%
+  group_by(장르명) %>%
+  summarise(예매합 = sum(`1`))
+
+# 장르별 총 취소수 계산
+by_genre_cancel <- posession_normal %>%
+  group_by(장르명) %>%
+  summarise(취소합 = sum(`2`))
+
+# 장르별 총 좌석수 계산
+by_genre_seat <- posession_normal %>%
+  group_by(장르명) %>%
+  summarise(좌석수합 = sum(좌석수))
+
+# 장르별 총 취소수를 별도의 데이터프레임으로 생성
+취소합 <- as.data.frame(by_genre_cancel$취소합)
+
+# 장르별 총 좌석수를 별도의 데이터프레임으로 생성
+좌석수합 <- as.data.frame(by_genre_seat$좌석수합)
+
+# 장르별 총 예매수 데이터프레임과 취소수, 좌석수 데이터프레임을 병합
+posession_mean <- cbind(by_genre_book, 취소합, 좌석수합)
+
+# 변수명 변경
+posession_mean <- posession_mean %>%
+  rename('취소합' = `by_genre_cancel$취소합`) %>%
+  rename('좌석수합' = `by_genre_seat$좌석수합`)
+
+# 예매합에서 취소합을 빼 실예매합을 구하고 이를 좌석수합으로 나누어 장르별 좌석점유율 계산
+posession_mean <- posession_mean %>%
+  mutate(실예매수합 = 예매합 - 취소합) %>%
+  mutate(장르별좌석점유율 = 실예매수합/좌석수합)
+
+```
+
+## 2. 장르별 좌석점유율 시각화
+
+```{r}
+posession_mean_plot <- posession_mean %>%
+  ggplot() + theme_classic() + geom_col(aes(x = reorder(장르명, 장르별좌석점유율), y = 장르별좌석점유율), 
+                                        color = 'forestgreen', 
+                                        fill = 'forestgreen', 
+                                        alpha = 0.7) + 
+  labs(x = '장르명', y = '장르별좌석점유율')
+
+posession_mean_plot
+```
+

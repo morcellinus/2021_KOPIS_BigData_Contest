@@ -1,0 +1,75 @@
+---
+title: "Untitled"
+author: "Ko"
+date: '2021 9 12 '
+output: html_document
+---
+
+
+*설명*
+금액 관련(장르별 할인율 및 유무료 여부) 플랏팅 한 코드 모음입니다.
+
+# 기본 세팅
+```{r}
+# 패키지 로드
+library(data.table)
+library(tidyverse)
+library(lubridate)
+
+# 데이터 로드
+load('E:/KOPIS/for ppt/data_filtered4.rda') # 전처리 된 KOPIS 제공 서울시 공연 예매/취소 내역
+```
+
+# 장르별 유무료 비율플랏입니다.
+```{r}
+data %>% 
+  mutate(무료여부 = -유료여부 + 1) %>% select(-유료여부) %>% 
+  filter(`예매/취소구분` == 1) %>% 
+  select(공연장코드, 공연코드, 공연일시, 장르명, 무료여부, 할인여부, 할인율) %>% 
+  group_by(장르명, 무료여부) %>%
+  summarise(N=n()) %>%
+  mutate(무료여부 = as.character(무료여부)) %>% 
+  ggplot(aes(x=장르명, y=N, fill = 무료여부)) +
+  geom_col(position = "fill", alpha = .9, color = "gray40") + 
+  scale_fill_manual(labels = c("유료", "무료"), values=c("lightblue2", "pink1")) + 
+  scale_y_continuous(labels = c("0%","25%","50%","75%","100%")) +
+  labs(title = "장르별 유무료 관람객 비율") + 
+  theme_minimal() + 
+  theme(
+    plot.title = element_text(face = "bold", size = 20, hjust = 0.5),
+    legend.title = element_blank(),
+    legend.position = "bottom",
+    axis.title = element_blank()
+  )
+```
+
+# 장르별 할인율 플랏입니다.
+```{r}
+
+data %>% 
+  filter(`예매/취소구분` == 1) %>% 
+  filter(할인여부 != -1) %>% 
+  filter(할인율 > 0) %>% 
+  select(공연장코드, 공연코드, 공연일시, 장르명, 무료여부, 할인여부, 할인율) %>% 
+  # 할인율 구분
+  mutate(할인율구분 = cut(할인율, breaks = c(-1, .01, .20, .40, .60, .80, 1),
+                        labels = c("0%", "1%~20%", "21%~40%", "41%~60%", "61%~80%", "80%~100%"))) %>% 
+  group_by(장르명, 할인율구분) %>%
+  summarise(N=n()) %>% 
+  ggplot(aes(x=장르명, y=N, fill = 할인율구분)) +
+  geom_col(position = "fill", stat = "identiy", alpha = .8, color = "gray40") + 
+  scale_fill_manual(values = c("lightblue2","beige", "pink1","palevioletred1","brown3","red4")) + 
+  scale_y_continuous(labels = c("0%","25%","50%","75%","100%")) +
+  labs(title = "장르별 할인율 비교") + 
+  theme_minimal() + 
+  theme(
+    plot.title = element_text(face = "bold", size = 20, hjust = 0.5),
+    legend.title = element_blank(),
+    axis.title = element_blank()
+  )
+
+```
+
+
+
+
