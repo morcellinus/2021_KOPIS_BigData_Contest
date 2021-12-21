@@ -1,0 +1,54 @@
+---
+title: "Untitled"
+author: "Ko"
+date: '2021 9 13 '
+output: html_document
+---
+
+*설명*
+코피스 제공 데이터로부터 공연장별 데이터를 만들기 위한 코드 파일입니다.
+전체 데이터로부터 공연장과 공연시설코드별로 unique한 값들을 추출하여 공연장 정보만 남겼습니다.
+
+# 0. 기본 세팅
+```{r message=FALSE, warning=FALSE}
+# 패키지 로드
+library(tidyverse)
+library(data.table)
+library(jsonlite)
+library(httr)
+
+# 전체 예매 데이터 로드
+load("data/rda/data_filtered4.rda")
+```
+
+```{r}
+# 공연장 데이터 생성
+stage = data %>% 
+  # 공연장 정보를 담는 변수만 추출
+  select(공연시설코드, 공연장코드, 주소, 좌석수, contains("시설")) %>% 
+  
+  # 공연장 정보만 추출 
+  distinct %>%  
+  
+  # 주소 변수로부터 도로명주소 추출
+  mutate(
+    도로명주소 = str_extract(주소, pattern = ".+길 \\d*-\\d*|.+로 \\d*-\\d*|.+길 \\d*|.+로 \\d*"))
+
+# 위경도를 추출할 도로명주소
+addr = stage$도로명주소
+
+# KAKAO API를 이용하여 도로명주소 -> 좌표 추출 (API KEY, 함수 파일에서 정의 필요함)
+latlong = data.frame("주소"=NA, "위도"=NA, "경도"=NA)
+for ( i in addr ){
+  tmp = get_coord_from_addr(addr=i, kakao_api = kakao_api)
+  latlong = rbind(latlong, tmp)
+}
+
+# 도로명주소와 위경도 좌표가 포함된 공연장 데이터 저장
+stage = left_join(stage, latlong, by = ("도로명주소")) %>%
+  distinct(공연시설코드, 공연장코드, 주소, .keep_all = T)
+
+# 파일로 저장
+write_csv(stage, "data/csv/공연장383.csv")
+```
+

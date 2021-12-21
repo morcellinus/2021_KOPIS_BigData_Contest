@@ -1,0 +1,66 @@
+---
+title: "Untitled"
+author: "Ko"
+date: '2021 9 5 '
+output: html_document
+---
+
+*설명*
+KOPIS에서 제공하는 예매내역으로부터 공연시설 정보를 추출하고,
+KOPIS DB에서 제공하는 공연시설 파일과 병합하여 서울시 공연시설 데이터를 만드는 과정입니다.
+
+
+# 기본 세팅
+```{r message=FALSE, warning=FALSE}
+# 패키지 로드
+library(tidyverse)
+library(data.table)
+
+# 데이터 로드
+db = fread("data/csv/kopisDB_위경도추가.csv", encoding = "UTF-8") # KOPIS 공연시설DB 데이터
+stage = fread("data/csv/연장383.csv", encoding = "UTF-8") # KOPIS 제공 데이터에서 공연장 기준 추출 데이터
+```
+
+
+# 공연시설 데이터 생성
+```{r}
+
+# 시설 단위로 남기기 위해 동일한 시설명, 위경도 좌표를 갖는 데이터 하나씩 남김
+# 하나의 시설(동일한 위경도)에 여러 공연장이 있을 수 있기 때문임
+db = db %>% arrange(객석수) %>% distinct(시설명, 위도, 경도, .keep_all = T) 
+stage = stage %>% arrange(좌석수) %>%  distinct(공연시설코드, 위도, 경도, .keep_all = T) 
+
+
+# 데이터를 합치기 위해 열 이름을 변경하고, 필요한 열만 선택
+db2 = db %>% 
+  rename(공연시설코드 = 시설명,
+               좌석수 = 객석수) %>% 
+  select(주소, 공연시설코드, 좌석수, 위도, 경도)
+
+# 필요한 열만 선택
+stage2 = stage %>% select(주소, 공연시설코드, 좌석수, 위도, 경도)
+
+# 데이터를 합치기 위해 두 데이터의 열 이름을 일치시켜줌
+colnames(db2) = colnames(stage2)
+
+# 데이터 합침 > 서울시 공연시설 데이터
+data = rbind(db2,stage2) %>% 
+  arrange(desc(주소)) %>% 
+  distinct(위도, 경도, 좌석수, .keep_all = T) %>%  # 중복 데이터 삭제
+  mutate(좌석수 = extract_numeric(좌석수)) %>% 
+  filter(주소 != "서울특별시 중구 퇴계로 387 (흥인동)") %>% # 중복 데이터 삭제
+  filter(주소 != "서울특별시 중구 정동길 3 (정동)") %>% # 중복 데이터 삭제
+  filter(주소 != "서울특별시 중구 정동길 43 (정동) 정동극장") %>% # 중복 데이터 삭제
+  filter(공연시설코드 != "FC222225") %>% # 중복 데이터 삭제
+  filter(주소 != "서울특별시 중구 마른내로 47 (초동)") %>% # 중복 데이터 삭제
+  filter(주소 != "서울특별시 종로구 홍지문2길 20 (홍지동)") %>%  # 중복 데이터 삭제
+  filter(주소 != "서울특별시 강남구 언주로 564 (역삼동) 라움아트센터") %>%  # 중복 데이터 삭제
+  filter(공연시설코드 != "더켠 소극장") %>%# 중복 데이터 삭제
+  filter(공연시설코드 != "FC222221" & 좌석수 != 130) %>%  # 중복 데이터 삭제
+  filter(공연시설코드 != "FC222223") %>% # 중복 데이터 삭제
+
+# 서울시 공연시설 데이터 최종 저장
+write_csv(data, "data/csv/KOPIS 제공+DB 공연시설.csv")
+```
+
+

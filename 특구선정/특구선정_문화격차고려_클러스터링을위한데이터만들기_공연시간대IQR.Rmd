@@ -1,0 +1,57 @@
+---
+title: "비주류장르 공연시간대 확인"
+author: "Hyungyeong Hong"
+date: "8/13/2021"
+output: html_document
+---
+# 1. 기본 세팅
+
+## (1) working directory 설정 및 필요한 패키지 불러오기
+```{r, message = FALSE}
+setwd("/Users/hyungyeonghong/Desktop/kopis/rdata")
+library(tidyverse)
+library(data.table)
+```
+
+## (2) 데이터 불러오기
+```{r}
+load("clustering_data.rda")
+```
+
+
+# 2. 각 장르별 공연시간대 확인
+
+## (1) 국악 장르의 공연시간대 확인
+```{r}
+clustering_data %>% filter(장르명 == "국악") %>% select(공연일시) %>% mutate(시간대 = hour(공연일시)) %>% select(시간대) %>% summary
+```
+
+## (2) 무용 장르의 공연시간대 확인
+```{r}
+clustering_data %>% filter(장르명 == "무용") %>% select(공연일시) %>% mutate(시간대 = hour(공연일시)) %>% select(시간대) %>% summary
+```
+
+## (3) 국악 장르의 평일 공연시간대 확인
+```{r}
+clustering_data %>% select(장르명, 공연일시) %>% mutate(요일 = weekdays(공연일시)) %>% filter(요일 != "Saturday" & 요일 != "Sunday") %>% 
+  filter(장르명 == "국악") %>% mutate(공연시간 = hour(공연일시)) %>% select(공연시간) %>% summary
+```
+
+## (4) 국악 장르의 주말 공연시간대 확인
+```{r}
+clustering_data %>% select(장르명, 공연일시) %>% mutate(요일 = weekdays(공연일시)) %>% filter(요일 == "Saturday" | 요일 == "Sunday") %>% 
+  filter(장르명 == "국악") %>% mutate(공연시간 = hour(공연일시)) %>% select(공연시간) %>% summary
+```
+
+## (5) 무용 장르의 평일 공연시간대 확인
+```{r}
+clustering_data %>% select(장르명, 공연일시) %>% mutate(요일 = weekdays(공연일시)) %>% filter(요일 != "Saturday" & 요일 != "Sunday") %>% 
+  filter(장르명 == "무용") %>% mutate(공연시간 = hour(공연일시)) %>% select(공연시간) %>% summary
+```
+
+## (6) 무용 장르의 주말 공연시간대 확인
+```{r}
+clustering_data %>% select(장르명, 공연일시) %>% mutate(요일 = weekdays(공연일시)) %>% filter(요일 == "Saturday" | 요일 == "Sunday") %>% 
+  filter(장르명 == "무용") %>% mutate(공연시간 = hour(공연일시)) %>% select(공연시간) %>% summary
+```
+

@@ -1,0 +1,551 @@
+---
+title: "seoul_apt"
+author: "Hyungyeong Hong"
+date: "9/1/2021"
+output: html_document
+---
+
+# 1. 기본 세팅
+
+## (1) working directory 설정 및 필요한 패키지 불러오기
+```{r}
+setwd("/Users/hyungyeonghong/Desktop/kopis/지표")
+library(tidyverse)
+library(data.table)
+library(httr)
+library(jsonlite)
+```
+
+## (2) 서울시 아파트 실거래가 데이터 불러오기
+```{r}
+seoul_apt <- fread("seoul_apt.csv")
+seoul_apt
+```
+
+## (3) 연립, 다세대 주택 실거래가 데이터 불러오기
+```{r}
+seoul_house <- fread("seoul_house.csv")
+seoul_house
+```
+
+# 2. 아파트 실거래가 데이터 전처리
+
+## (1) 거래금액 칼럼 변경
+* 거래금액이 만원단위로 표시되어 있고, character로 표현되어 있어 이를 numeric으로 변경해 줍니다.
+```{r}
+seoul_apt <- seoul_apt %>% rename('거래금액' ='거래금액(만원)')
+seoul_apt <- seoul_apt %>% select(시군구, 단지명, 거래금액, 도로명)
+seoul_apt <- seoul_apt %>% mutate(도로명주소 = paste(시군구,도로명)) %>% select(도로명주소, 단지명, 거래금액)
+seoul_apt$거래금액 <- seoul_apt$거래금액 %>% str_remove(",") %>% as.numeric
+seoul_apt$거래금액 <- (seoul_apt$거래금액)*10000
+seoul_apt
+```
+
+## (2) 위경도 뽑기
+* 위경도를 뽑기 위한 API 호출 함수를 정의합니다.
+```{r}
+get_coord_from_addr <- function(addr, kakao_api) {
+
+  data_list <-
+    GET(url = 'https://dapi.kakao.com/v2/local/search/address.json',
+        query = list(query = addr),
+        add_headers(Authorization = paste0("KakaoAK ", kakao_api))) %>% 
+    content(as = 'text') %>% 
+    fromJSON()
+  
+  
+  lon_lat_df <- tibble(주소 = addr, 
+                       위도 = as.numeric(data_list$documents$y),
+                       경도 = as.numeric(data_list$documents$x))
+  
+  return(lon_lat_df)
+}
+```
+
+```{r}
+kakao_api <- "INSERT YOUR KAKAO API KEY HERE"
+```
+
+* 실거래가 데이터의 도로명 주소 칼럼을 뽑아옵니다.
+```{r}
+seoul_apt_addr <- seoul_apt %>% select(도로명주소) %>% unique
+seoul_apt_addr
+```
+
+
+* 위의 함수를 이용하여 도로명 주소를 기준으로 하여 아파트의 위경도 좌표를 추출합니다.
+```{r}
+apt_addr <- tibble()
+
+for(i in 1:6766){
+  addr <- seoul_apt_addr$도로명주소[i]
+  apt_addr <- apt_addr %>% rbind(get_coord_from_addr(addr, kakao_api)[1,])
+}
+
+apt_addr
+```
+
+
+## (3) 결측치 처리
+* 도로명 주소가 온전하지 않다면 API 변환 결과 NA가 반환됩니다.
+* 위경도 좌표를 재추출하기 위해 NA가 반환된 도로명주소를 수정합니다.
+```{r}
+na_idx <- which(is.na(apt_addr$주소) == TRUE)
+seoul_apt_addr[na_idx, ]
+
+seoul_apt_addr[na_idx[1], ]$도로명주소 <- "서울특별시 강남구 개포동 개포로 311"
+seoul_apt_addr[na_idx[2], ]$도로명주소 <- "서울특별시 강남구 개포동 선릉로 8"
+seoul_apt_addr[na_idx[3], ]$도로명주소 <- "서울특별시 강남구 역삼동 도곡로1길 23"
+seoul_apt_addr[na_idx[4], ]$도로명주소 <- "서울 강남구 도곡로43길 21"
+seoul_apt_addr[na_idx[5], ]$도로명주소 <- "서울 강동구 길동 160"
+seoul_apt_addr[na_idx[6], ]$도로명주소 <- "서울 강서구 곰달래로18길 33-13"
+seoul_apt_addr[na_idx[7], ]$도로명주소 <- "서울 강서구 화곡로21길 71"
+seoul_apt_addr[na_idx[8], ]$도로명주소 <- "서울특별시 강서구 월정로20길 82"
+seoul_apt_addr[na_idx[9], ]$도로명주소 <- "서울 광진구 자양번영로3길 65"
+seoul_apt_addr[na_idx[10], ]$도로명주소 <- "서울 구로구 구로중앙로18길 11"
+seoul_apt_addr[na_idx[11], ]$도로명주소 <- "서울 구로구 오류로 36-13"
+seoul_apt_addr[na_idx[12], ]$도로명주소 <- "서울 구로구 천왕로 91"
+seoul_apt_addr[na_idx[13], ]$도로명주소 <- "서울 구로구 천왕로 92"
+seoul_apt_addr[na_idx[14], ]$도로명주소 <- "서울 금천구 시흥대로 291"
+seoul_apt_addr[na_idx[15], ]$도로명주소 <- "서울 동대문구 한천로24길 74-9"
+seoul_apt_addr[na_idx[16], ]$도로명주소 <- "서울 동작구 만양로 26"
+seoul_apt_addr[na_idx[17], ]$도로명주소 <- "서울 동작구 사당로23길 112"
+seoul_apt_addr[na_idx[18], ]$도로명주소 <- "서울 마포구 공덕동 11-168"
+seoul_apt_addr[na_idx[19], ]$도로명주소 <- "서울 서대문구 냉천동 103-5"
+seoul_apt_addr[na_idx[20], ]$도로명주소 <- "서울 서초구 신반포로 27-6"
+seoul_apt_addr[na_idx[21], ]$도로명주소 <- "서울특별시 서초구 방배동 808-3"
+seoul_apt_addr[na_idx[22], ]$도로명주소 <- "서울 성동구 동호로 100"
+seoul_apt_addr[na_idx[23], ]$도로명주소 <- "서울 성동구 왕십리로 410"
+seoul_apt_addr[na_idx[24], ]$도로명주소 <- "서울 성북구 동소문로15길 99"
+seoul_apt_addr[na_idx[25], ]$도로명주소 <- "서울 성북구 동소문로15길 99"
+seoul_apt_addr[na_idx[26], ]$도로명주소 <- "서울 성북구 장위동 68-1014"
+seoul_apt_addr[na_idx[27], ]$도로명주소 <- "서울 성북구 서경로 60"
+seoul_apt_addr[na_idx[28], ]$도로명주소 <- "서울 송파구 신천동 17-6"
+seoul_apt_addr[na_idx[29], ]$도로명주소 <- "서울 송파구 신천동 20-4"
+seoul_apt_addr[na_idx[30], ]$도로명주소 <- "서울 송파구 동남로23가길 20-16"
+seoul_apt_addr[na_idx[31], ]$도로명주소 <- "서울 양천구 남부순환로83길 47"
+seoul_apt_addr[na_idx[32], ]$도로명주소 <- "서울 용산구 백범로 341"
+seoul_apt_addr[na_idx[33], ]$도로명주소 <- "서울 은평구 서오릉로2길 12"
+seoul_apt_addr[na_idx[34], ]$도로명주소 <- "서울 은평구 연서로28길 12"
+seoul_apt_addr[na_idx[35], ]$도로명주소 <- "서울 은평구 통일로65길 3"
+seoul_apt_addr[na_idx[36], ]$도로명주소 <- "서울 은평구 연서로28길 8"
+seoul_apt_addr[na_idx[37], ]$도로명주소 <- "서울 은평구 수색로 217"
+seoul_apt_addr[na_idx[38], ]$도로명주소 <- "서울 은평구 수색동 358-3"
+seoul_apt_addr[na_idx[39], ]$도로명주소 <- "서울 은평구 서오릉로 107"
+seoul_apt_addr[na_idx[40], ]$도로명주소 <- "서울 은평구 은평로 116"
+seoul_apt_addr[na_idx[41], ]$도로명주소 <- "서울 종로구 창경궁로18길 20-6"
+seoul_apt_addr[na_idx[42], ]$도로명주소 <- "서울 종로구 평창문화로 170"
+seoul_apt_addr[na_idx[43], ]$도로명주소 <- "서울 종로구 평창문화로 102-15"
+seoul_apt_addr[na_idx[44], ]$도로명주소 <- "서울 종로구 사직로9길 14"
+seoul_apt_addr[na_idx[45], ]$도로명주소 <- "서울 중랑구 신내로7길 20"
+```
+
+* 주소 변환 후에도 NA값이 반환된 도로명주소들이 존재하므로, 수정을 통해 위경도 좌표를 재추출하기 위해 해당 도로명주소를 뽑아옵니다.
+```{r}
+pass <- seoul_apt_addr[-na_idx, ]
+fail <- seoul_apt_addr[na_idx, ]
+fail
+```
+
+* NA가 반환된 도로명 주소들의 위경도 좌표를 재추출합니다.
+```{r}
+fail_addr <- tibble()
+
+for(i in 1:45){
+  addr <- fail$도로명주소[i]
+  fail_addr <- fail_addr %>% rbind(get_coord_from_addr(addr, kakao_api)[1,])
+}
+
+fail_addr
+```
+
+* 두 번의 과정을 통해 추출한 도로명주소와 위경도 좌표 데이터를 rbind를 통해 합쳐줍니다.
+* 지금까지의 과정을 통해 서울시 아파트 실거래가 데이터 내에 존재하는 아파트들의 도로명주소와 위경도 좌표가 담긴 하나의 데이터프레임을 만들 수 있습니다.
+```{r}
+pass_addr <- apt_addr[-na_idx, ]
+fail_addr
+
+apt_addr_latlon <- rbind(pass_addr, fail_addr)
+apt_addr_latlon
+```
+
+* 원 데이터(seoul_apt)에서 도로명 주소만 뽑아온 데이터(apt_addr_latlon)의 45개 값을 수정해 주었기 때문에 원 데이터인 seoul_apt 역시 동일한 주소 값으로의 수정이 필요합니다.
+* 원 데이터에서 변경 전 도로명 주소를 찾아 새로운 주소로 변경해줍니다.
+```{r}
+idx1 <- which(seoul_apt$도로명주소 == "서울특별시 강남구 개포동 개포로 310")
+seoul_apt[idx1]$도로명주소 <- "서울특별시 강남구 개포동 개포로 311"
+
+idx2 <- which(seoul_apt$도로명주소 == "서울특별시 강남구 개포동 선릉로 7")
+seoul_apt[idx2]$도로명주소 <- "서울특별시 강남구 개포동 선릉로 8"
+  
+idx3 <- which(seoul_apt$도로명주소 == "서울특별시 강남구 역삼동 도곡로1길 22")
+seoul_apt[idx3]$도로명주소 <- "서울특별시 강남구 역삼동 도곡로1길 23"
+
+idx4 <- which(seoul_apt$도로명주소 == "서울특별시 강남구 역삼동 도곡로 306")
+seoul_apt[idx4]$도로명주소 <- "서울 강남구 도곡로43길 21"
+  
+idx5 <- which(seoul_apt$도로명주소 == "서울특별시 강동구 길동 천중로 264")
+seoul_apt[idx5]$도로명주소 <- "서울 강동구 길동 160"
+  
+idx6 <- which(seoul_apt$도로명주소 == "서울특별시 강서구 화곡동 곰달래로18길 33-1")
+seoul_apt[idx6]$도로명주소 <- "서울 강서구 곰달래로18길 33-13"
+  
+idx7 <- which(seoul_apt$도로명주소 == "서울특별시 강서구 화곡동 화곡로21길 71-1")
+seoul_apt[idx7]$도로명주소 <- "서울 강서구 화곡로21길 71"
+  
+idx8 <- which(seoul_apt$도로명주소 == "서울특별시 강서구 화곡동 월정로20길 82-8")
+seoul_apt[idx8]$도로명주소 <- "서울특별시 강서구 월정로20길 82"
+  
+idx9 <- which(seoul_apt$도로명주소 == "서울특별시 광진구 자양동 뚝섬로 45")
+seoul_apt[idx9]$도로명주소 <- "서울 광진구 자양번영로3길 65"
+  
+idx10 <- which(seoul_apt$도로명주소 == "서울특별시 구로구 구로동 구로중앙로18길 11-1")
+seoul_apt[idx10]$도로명주소 <- "서울 구로구 구로중앙로18길 11"
+  
+idx11 <- which(seoul_apt$도로명주소 == "서울특별시 구로구 오류동 오류로 30")
+seoul_apt[idx11]$도로명주소 <- "서울 구로구 오류로 36-13"
+  
+idx12 <- which(seoul_apt$도로명주소 == "서울특별시 구로구 오류동 천왕로 91")
+seoul_apt[idx12]$도로명주소 <- "서울 구로구 천왕로 91"
+  
+idx13 <- which(seoul_apt$도로명주소 == "서울특별시 구로구 오류동 천왕로 92")
+seoul_apt[idx13]$도로명주소 <- "서울 구로구 천왕로 92"
+  
+idx14 <- which(seoul_apt$도로명주소 == "서울특별시 금천구 독산동 시흥대로 291-1")
+seoul_apt[idx14]$도로명주소 <- "서울 금천구 시흥대로 291"
+  
+idx15 <- which(seoul_apt$도로명주소 == "서울특별시 동대문구 장안동 한천로24길 74-11")
+seoul_apt[idx15]$도로명주소 <- "서울 동대문구 한천로24길 74-9"
+  
+idx16 <- which(seoul_apt$도로명주소 == "서울특별시 동작구 노량진동 만양로 26")
+seoul_apt[idx16]$도로명주소 <- "서울 동작구 만양로 26"
+  
+idx17 <- which(seoul_apt$도로명주소 == "서울특별시 동작구 사당동 사당로23길 4")
+seoul_apt[idx17]$도로명주소 <- "서울 동작구 사당로23길 112"
+  
+idx18 <- which(seoul_apt$도로명주소 == "서울특별시 마포구 공덕동 18")
+seoul_apt[idx18]$도로명주소 <- "서울 마포구 공덕동 11-168"
+  
+idx19 <- which(seoul_apt$도로명주소 == "서울특별시 서대문구 냉천동 천중로56길 41")
+seoul_apt[idx19]$도로명주소 <- "서울 서대문구 냉천동 103-5"
+  
+idx20 <- which(seoul_apt$도로명주소 == "서울특별시 서초구 반포동 신반포로19길 10")
+seoul_apt[idx20]$도로명주소 <- "서울 서초구 신반포로 27-6"
+  
+idx21 <- which(seoul_apt$도로명주소 == "서울특별시 서초구 방배동 동광로24길 8")
+seoul_apt[idx21]$도로명주소 <- "서울특별시 서초구 방배동 808-3"
+  
+idx22 <- which(seoul_apt$도로명주소 == "서울특별시 성동구 금호동2가 동호로 100")
+seoul_apt[idx22]$도로명주소 <- "서울 성동구 동호로 100"
+  
+idx23 <- which(seoul_apt$도로명주소 == "서울특별시 성동구 상왕십리동 왕십리로 410")
+seoul_apt[idx23]$도로명주소 <- "서울 성동구 왕십리로 410"
+  
+idx24 <- which(seoul_apt$도로명주소 == "서울특별시 성북구 동소문동7가 동소문로13길 47")
+seoul_apt[idx24]$도로명주소 <- "서울 성북구 동소문로15길 99"
+  
+idx25 <- which(seoul_apt$도로명주소 == "서울특별시 성북구 동소문동7가 동소문로13길 84")
+seoul_apt[idx25]$도로명주소 <- "서울 성북구 동소문로15길 99"
+  
+idx26 <- which(seoul_apt$도로명주소 == "서울특별시 성북구 장위동 장위로 122-3")
+seoul_apt[idx26]$도로명주소 <- "서울 성북구 장위동 68-1014"
+  
+idx27 <- which(seoul_apt$도로명주소 == "서울특별시 성북구 정릉동 서경로 60")
+seoul_apt[idx27]$도로명주소 <- "서울 성북구 서경로 60"
+  
+idx28 <- which(seoul_apt$도로명주소 == "서울특별시 송파구 신천동 올림픽로33길 17")
+seoul_apt[idx28]$도로명주소 <- "서울 송파구 신천동 17-6"
+  
+idx29 <- which(seoul_apt$도로명주소 == "서울특별시 송파구 신천동 올림픽로 399")
+seoul_apt[idx29]$도로명주소 <- "서울 송파구 신천동 20-4"
+  
+idx30 <- which(seoul_apt$도로명주소 == "서울특별시 송파구 오금동 동남로23가길 8-27")
+seoul_apt[idx30]$도로명주소 <- "서울 송파구 동남로23가길 20-16"
+  
+idx31 <- which(seoul_apt$도로명주소 == "서울특별시 양천구 목동 남부순환로83길 47")
+seoul_apt[idx31]$도로명주소 <- "서울 양천구 남부순환로83길 47"
+  
+idx32 <- which(seoul_apt$도로명주소 == "서울특별시 용산구 문배동 백범로 341")
+seoul_apt[idx32]$도로명주소 <- "서울 용산구 백범로 341"
+  
+idx33 <- which(seoul_apt$도로명주소 == "서울특별시 은평구 녹번동 서오릉로2길 12-1")
+seoul_apt[idx33]$도로명주소 <- "서울 은평구 서오릉로2길 12"
+  
+idx34 <- which(seoul_apt$도로명주소 == "서울특별시 은평구 대조동 연서로28길 12-1")
+seoul_apt[idx34]$도로명주소 <- "서울 은평구 연서로28길 12"
+  
+idx35 <- which(seoul_apt$도로명주소 == "서울특별시 은평구 대조동 통일로65길 3-1")
+seoul_apt[idx35]$도로명주소 <- "서울 은평구 통일로65길 3"
+  
+idx36 <- which(seoul_apt$도로명주소 == "서울특별시 은평구 대조동 연서로28길 8-1")
+seoul_apt[idx36]$도로명주소 <- "서울 은평구 연서로28길 8"
+  
+idx37 <- which(seoul_apt$도로명주소 == "서울특별시 은평구 수색동 수색로 217-1")
+seoul_apt[idx37]$도로명주소 <- "서울 은평구 수색로 217"
+  
+idx38 <- which(seoul_apt$도로명주소 == "서울특별시 은평구 수색동 수색로18길 19-8")
+seoul_apt[idx38]$도로명주소 <- "서울 은평구 수색동 358-3"
+  
+idx39 <- which(seoul_apt$도로명주소 == "서울특별시 은평구 역촌동 서오릉로 107-1")
+seoul_apt[idx39]$도로명주소 <- "서울 은평구 서오릉로 107"
+  
+idx40 <- which(seoul_apt$도로명주소 == "서울특별시 은평구 응암동 은평로 116-1")
+seoul_apt[idx40]$도로명주소 <- "서울 은평구 은평로 116"
+  
+idx41 <- which(seoul_apt$도로명주소 == "서울특별시 종로구 원남동 창경궁로18길 20-6")
+seoul_apt[idx41]$도로명주소 <- "서울 종로구 창경궁로18길 20-6"
+  
+idx42 <- which(seoul_apt$도로명주소 == "서울특별시 종로구 평창동 평창문화로 171")
+seoul_apt[idx42]$도로명주소 <- "서울 종로구 평창문화로 170"
+  
+idx43 <- which(seoul_apt$도로명주소 == "서울특별시 종로구 평창동 세검정로 384-13")
+seoul_apt[idx43]$도로명주소 <- "서울 종로구 평창문화로 102-15"
+  
+idx44 <- which(seoul_apt$도로명주소 == "서울특별시 종로구 필운동 사직로9길 14")
+seoul_apt[idx44]$도로명주소 <- "서울 종로구 사직로9길 14"
+  
+idx45 <- which(seoul_apt$도로명주소 == "서울특별시 중랑구 상봉동 신내로7길 20")
+seoul_apt[idx45]$도로명주소 <- "서울 중랑구 신내로7길 20"
+```
+
+## (4) 원 데이터와 위경도 데이터 결합
+* 원 데이터인 seoul_apt에 위경도 칼럼을 추가해 주기 위해, 도로명 주소와 위경도 좌표 정보가 담긴 apt_addr_latlon 데이터를 seoul_apt데이터에 도로명 주소를 기준으로 left_join 시킵니다.
+```{r}
+apt_addr_latlon <- apt_addr_latlon %>% rename(도로명주소 = 주소)
+apt_addr_latlon <- apt_addr_latlon %>% distinct()
+seoul_apt_latlon <- left_join(seoul_apt, apt_addr_latlon, by = "도로명주소")
+seoul_apt_latlon %>% lapply(is.na) %>% sapply(sum)
+```
+
+* 해당 데이터프레임을 csv파일로 저장합니다.
+```{r}
+seoul_apt_latlon %>% write.csv("seoul_apt_latlon.csv", row.names = FALSE)
+```
+
+# 3. 연립, 다세대 주택 실거래가 데이터 전처리
+
+## (1) 거래금액 칼럼 변경
+* 거래금액이 만원단위로 표시되어 있고, character로 표현되어 있어 이를 numeric으로 변경해 줍니다.
+```{r}
+seoul_house <- seoul_house %>% select(건물명, 시군구, '거래금액(만원)', 도로명) %>% rename(거래금액 = '거래금액(만원)')
+seoul_house <- seoul_house %>% mutate(도로명주소 = paste(시군구, 도로명)) %>% select(도로명주소, 건물명, 거래금액)
+seoul_house$거래금액 <- seoul_house$거래금액 %>% str_remove(",") %>% as.numeric * 10000
+seoul_house
+```
+
+## (2) 위경도 뽑기
+
+* 실거래가 데이터의 도로명 주소 칼럼을 뽑아옵니다.
+```{r}
+seoul_house_addr <- seoul_house %>% select(도로명주소) %>% unique
+seoul_house_addr
+```
+
+* 도로명 주소에 대한 위경도 좌표를 API로 뽑아냅니다.
+```{r}
+house_addr <- tibble()
+
+for(i in 1:30974){
+  addr <- seoul_house_addr$도로명주소[i]
+  house_addr <- house_addr %>% rbind(get_coord_from_addr(addr, kakao_api)[1,])
+}
+
+house_addr
+```
+
+
+## (3) 결측치 처리
+* 아래의 과정은 위의 아파트 실거래가 데이터와 같이 결측치가 반환된 도로명 주소를 수정한 후 다시 위경도 좌표를 추출하는 과정입니다.
+* 수정 후에도 결측치가 지속적으로 나오는 도로명주소의 경우 인접한 주소로 변경해주는 과정을 거쳤습니다.
+* 좌표 추출 각 단계 직후에는 데이터를 합쳐주는 과정을 거쳤습니다.
+```{r}
+na_idx <- which(is.na(house_addr$주소) == TRUE)
+pass <- seoul_house_addr[-na_idx, ]
+fail <- seoul_house_addr[na_idx, ]
+```
+
+```{r}
+fail_idx <- which(seoul_house$도로명주소 %in% fail$도로명주소)
+
+pass_addr <- seoul_house[-fail_idx, ]
+house_addr <- house_addr %>% rename(도로명주소 = 주소)
+pass_addr_lonlat <- left_join(pass_addr, house_addr)
+pass_addr_lonlat
+```
+
+```{r}
+fail_addr <- seoul_house[fail_idx, ]
+
+fail_addr_list <- fail_addr$도로명주소 %>% str_split("-")
+fail_addr_list[[18]][2] #2497
+fail_addr_list
+for(i in 1:2497){
+  fail_addr_list[[i]] <- fail_addr_list[[i]][1]
+}
+
+fail_addr_replaced  <- fail_addr_list %>% as.data.frame() %>% transpose()
+fail_addr_replaced <- fail_addr_replaced %>% rename(도로명주소 = V1)
+fail_addr_replaced
+fail_addr$도로명주소 <- fail_addr_replaced$도로명주소
+fail_addr
+```
+
+```{r}
+replaced_addr <- tibble()
+
+for(i in 1:2497){
+  addr <- fail_addr$도로명주소[i]
+  replaced_addr <- replaced_addr %>% rbind(get_coord_from_addr(addr, kakao_api)[1,])
+}
+
+replaced_addr
+```
+
+```{r}
+na_idx <- which(is.na(replaced_addr$주소) == TRUE)
+```
+
+```{r}
+replaced_addr <- replaced_addr %>% rename(도로명주소 = 주소)
+replaced_addr
+fail_addr_lonlat <- cbind(fail_addr, replaced_addr[, -1]) %>% filter(is.na(위도) == FALSE)
+fail_addr_lonlat %>% colnames
+pass_addr_lonlat %>% colnames
+addr_lonlat <- rbind(pass_addr_lonlat, fail_addr_lonlat, use.names = FALSE)
+```
+
+```{r}
+fail2_addr_list <- fail_addr[na_idx, ]$도로명주소 %>% str_split(" ")
+fail2_addr_list %>% sapply(length)
+fail2_addr_list
+paste(fail2_addr_list[[1]][1], fail2_addr_list[[1]][2], fail2_addr_list[[1]][3], fail2_addr_list[[1]][4])
+for(i in 1:1125){
+  fail2_addr_list[[i]] <- paste(fail2_addr_list[[i]][1], fail2_addr_list[[i]][2], fail2_addr_list[[i]][3], fail2_addr_list[[i]][4])
+}
+fail2_addr <- fail2_addr_list %>% as.data.frame %>% transpose %>% rename(도로명주소 = V1)
+```
+
+```{r}
+fail2 <- fail_addr[na_idx, ]
+fail2$도로명주소 <- fail2_addr$도로명주소
+fail2
+```
+
+```{r}
+replaced_addr2 <- tibble()
+
+for(i in 1:1125){
+  addr <- fail2$도로명주소[i]
+  replaced_addr2 <- replaced_addr2 %>% rbind(get_coord_from_addr(addr, kakao_api)[1,])
+}
+
+replaced_addr2
+```
+
+```{r}
+na_idx <- which(is.na(replaced_addr2$주소) == TRUE)
+na_idx
+```
+
+```{r}
+fail2_addr_lonlat <- cbind(fail2, replaced_addr2[,-1]) %>% filter(is.na(위도) == FALSE)
+addr_lonlat <- rbind(addr_lonlat, fail2_addr_lonlat, use.names = FALSE)
+addr_lonlat
+```
+
+```{r}
+addr_vec <- fail2[na_idx, ]$도로명주소 %>% unique
+addr_vec
+```
+
+```{r}
+fail3 <- fail2[na_idx,]
+fail3
+
+idx1 <- which(fail3$도로명주소 == addr_vec[1])
+fail3[idx1]$도로명주소 <- "서울 강동구 구천면로42길 88"
+
+idx2 <- which(fail3$도로명주소 == addr_vec[2])
+fail3[idx2]$도로명주소 <- "서울 강서구 화곡로43가길 73"
+
+idx3 <- which(fail3$도로명주소 == addr_vec[3])
+fail3[idx3]$도로명주소 <- "서울 강서구 화곡동 산 162-17"
+
+idx4 <- which(fail3$도로명주소 == addr_vec[4])
+fail3[idx4]$도로명주소 <- "서울 관악구 국회단지길 142"
+
+idx5 <- which(fail3$도로명주소 == addr_vec[5])
+fail3[idx5]$도로명주소 <- "서울 금천구 독산로51길 16"
+
+
+
+idx6 <- which(fail3$도로명주소 == addr_vec[6])
+fail3[idx6]$도로명주소 <- "서울 동대문구 천호대로43길 14"
+
+idx7 <- which(fail3$도로명주소 == addr_vec[7])
+fail3[idx7]$도로명주소 <- "서울 마포구 성미산로17길 99"
+  
+idx8 <- which(fail3$도로명주소 == addr_vec[8])
+fail3[idx8]$도로명주소 <- "서울 마포구 월드컵로20길 21-11"
+  
+idx9 <- which(fail3$도로명주소 == addr_vec[9])
+fail3[idx9]$도로명주소 <- "서울 서대문구 연대동문1길 73"
+  
+idx10 <- which(fail3$도로명주소 == addr_vec[10])
+fail3[idx10]$도로명주소 <- "서울 서초구 사평대로20길 89"
+
+
+  
+idx11 <- which(fail3$도로명주소 == addr_vec[11])
+fail3[idx11]$도로명주소 <- "서울 성북구 고려대로7가길 66-1"
+  
+idx12 <- which(fail3$도로명주소 == addr_vec[12])
+fail3[idx12]$도로명주소 <- "서울 성북구 고려대로10길 25"
+  
+idx13 <- which(fail3$도로명주소 == addr_vec[13])
+fail3[idx13]$도로명주소 <- "서울 성북구 고려대로10길 19-4"
+  
+idx14 <- which(fail3$도로명주소 == addr_vec[14])
+fail3[idx14]$도로명주소 <- "서울 성북구 고려대로10길 25"
+  
+idx15 <- which(fail3$도로명주소 == addr_vec[15])
+fail3[idx15]$도로명주소 <- "서울 성북구 북악산로1길 65"
+
+
+  
+idx16 <- which(fail3$도로명주소 == addr_vec[16])
+fail3[idx16]$도로명주소 <- "서울 송파구 백제고분로19길 30-9"
+  
+idx17 <- which(fail3$도로명주소 == addr_vec[17])
+fail3[idx17]$도로명주소 <- "서울 영등포구 도신로29바길 4"
+  
+idx18 <- which(fail3$도로명주소 == addr_vec[18])
+fail3[idx18]$도로명주소 <- "서울 중랑구 봉화산로22길 2"
+  
+idx19 <- which(fail3$도로명주소 == addr_vec[19])
+fail3[idx19]$도로명주소 <- "서울 은평구 연서로9길 18-1"
+  
+```
+
+```{r}
+replaced_addr3 <- tibble()
+
+for(i in 1:61){
+  addr <- fail3$도로명주소[i]
+  replaced_addr3 <- replaced_addr3 %>% rbind(get_coord_from_addr(addr, kakao_api)[1,])
+}
+
+replaced_addr3
+```
+
+```{r}
+fail3_lonlat <- cbind(fail3, replaced_addr3[, -1])
+addr_lonlat <- rbind(addr_lonlat, fail3_lonlat, use.names = FALSE)
+addr_lonlat %>% write.csv("seoul_house_latlon.csv", row.names = FALSE)
+```
+
+
+
+
+
+

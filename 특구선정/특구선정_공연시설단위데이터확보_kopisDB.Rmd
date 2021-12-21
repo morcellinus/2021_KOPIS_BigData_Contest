@@ -1,0 +1,132 @@
+---
+title: "특구선정_공연시설단위데이터확보_kopisDB"
+author: "Hyungyeong Hong"
+date: "9/13/2021"
+output: html_document
+---
+# 1. 기본 세팅
+
+## (1). working directory 설정 및 필요한 패키지 불러오기
+```{r, message = FALSE}
+setwd("/Users/hyungyeonghong/Desktop/kopis/rdata")
+library(tidyverse)
+library(data.table)
+library(httr)
+library(jsonlite)
+```
+
+## (2) API를 이용하여 위치정보를 뽑아올 데이터 불러오기
+```{r}
+perf_added <- fread("kopis_공연장.csv")
+```
+
+# 2. API를 이용하여 위치정보 뽑아오기
+
+## (1). KAKAO API를 이용하여 위경도, 도로명주소 뽑아오기 위한 함수 정의
+```{r}
+get_coord_from_addr <- function(addr, kakao_api) {
+
+  data_list <-
+    GET(url = 'https://dapi.kakao.com/v2/local/search/address.json',
+        query = list(query = addr),
+        add_headers(Authorization = paste0("KakaoAK ", kakao_api))) %>% 
+    content(as = 'text') %>% 
+    fromJSON()
+  
+  
+  lon_lat_df <- tibble(주소 = addr, 
+                       위도 = as.numeric(data_list$documents$y),
+                       경도 = as.numeric(data_list$documents$x))
+  
+  return(lon_lat_df)
+}
+```
+
+## (2). KAKAO API KEY 입력
+```{r}
+kakao_api <- "INSERT YOUR KAKAO API KEY HERE"
+```
+
+## (3). KAKAO API 이용하여 위치 정보 뽑아오기
+* 위에서 정의한 함수와 kakao_api 값을 이용하여 위경도와 도로명주소 정보를 가져옵니다.
+```{r}
+perf_lonlat <- tibble()
+perf_lonlat
+
+for(i in 1:695){
+  addr <- perf_added$주소[i]
+  perf_lonlat <- perf_lonlat %>% rbind(get_coord_from_addr(addr, kakao_api)[1,])
+}
+
+perf_lonlat
+```
+
+## (4). 위치정보 결측치 확인
+* 주소가 부정확할 경우 API 상에서 검색이 되지 않아 NA 값이 반환될 수 있습니다.
+* 따라서, 부정확한 주소로 인해 NA값이 반환된 부분이 있는지 확인합니다.
+```{r}
+perf_added <- perf_added %>% select(-주소) %>% cbind(perf_lonlat)
+perf_added %>% filter(is.na(주소) == TRUE)
+```
+
+* 손크롤링을 통해 부정확한 주소를 정확한 주소로 바꾸어줍니다.
+```{r}
+idx_1 <- perf_added$시설명 == "코미디헤이븐"
+perf_added$주소[idx_1] <- "서울 강남구 강남대로110길 19-1"
+
+idx_2 <- perf_added$시설명 == "오디오가이스튜디오"
+perf_added$주소[idx_2] <- "서울 종로구 효자로 23"
+
+idx_3 <- perf_added$시설명 == "예술공간 서울"
+perf_added$주소[idx_3] <- "서울 종로구 명륜2가 93"
+
+idx_4 <- perf_added$시설명 == "얘기아트씨어터"
+perf_added$주소[idx_4] <- "서울 마포구 노고산동 12-74"
+
+idx_5 <- perf_added$시설명 == "사랑하니까 이야기다"
+perf_added$주소[idx_5] <- "서울특별시 마포구 동교로 240"
+
+idx_6 <- perf_added$시설명 == "그랜드힐튼호텔"
+perf_added$주소[idx_6] <- "서울 서대문구 연희로 353"
+
+idx_7 <- perf_added$시설명 == "KT체임버홀"
+perf_added$주소[idx_7] <- "서울 양천구 목동 924"
+
+perf_added %>% filter(is.na(주소) == TRUE)
+
+perf_added
+```
+
+## (5). KAKAK API 이용하여 위치 정보 다시 뽑아오기
+```{r}
+perf_lonlat <- tibble()
+perf_lonlat
+
+for(i in 1:695){
+  addr <- perf_added$주소[i]
+  perf_lonlat <- perf_lonlat %>% rbind(get_coord_from_addr(addr, kakao_api)[1,])
+}
+
+perf_lonlat
+```
+
+## (6). 위치정보 결측치 확인
+* 원 공연장 정보 데이터와 위치정보 데이터를 cbind 합니다.
+* 이후 부정확한 주소로 결측치가 발생한 부분이 있는지 한번 더 확인합니다.
+```{r}
+perf_added <- perf_added %>% select(-c(주소, 위도, 경도)) %>% cbind(perf_lonlat)
+perf_added %>% filter(is.na(경도) == TRUE)
+```
+
+# 3. 데이터프레임 저장 및 확인
+
+## (1). cbind한 데이터를 csv 파일로 저장
+```{r}
+perf_added %>% write.csv("kopisDB_위경도추가.csv", row.names = FALSE)
+```
+
+## (2). 저장한 파일을 불러와 확인
+```{r}
+fread("kopisDB_위경도추가.csv")
+```
+

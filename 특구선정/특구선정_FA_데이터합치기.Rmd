@@ -1,0 +1,176 @@
+---
+title: "Untitled"
+author: "Jinmo Lee"
+date: '2021 9 5 '
+output: html_document
+---
+
+*설명*
+
+특구 설정 후보 지역의 공연 수요를 전반적으로 파악하기 위한 방법으로 Factor Analysis를 사용하기 위한 데이터 프레임을 만드는 과정입니다.
+
+-Factor Analysis를 위한 데이터 프레임에 포함된 변수를 586개 KOPIS 제공 데이터 + KOPIS DB 데이터 기준 공연시설에 따라 배정했습니다.
+
+-각 변수를 합쳐 하나의 데이터프레임으로 만드는 과정입니다.
+
+## 1-1. 교통 관련 데이터프레임 정리
+```{r}
+# 패키지 다운로드
+library(tidyverse)
+
+# 버스정류장 개수 데이터프레임 load
+bus <- data.table::fread('C:/Users/samsung/Desktop/KOPIS/2차 코드/db제공_버스.csv', encoding = 'UTF-8')
+
+# 변수명 변경
+colnames(bus) <- c('주소', '공연시설코드', '좌석수', '위도', '경도', '버스정류장개수')
+
+# 지하철역 개수 데이터프레임 load
+subway <- data.table::fread('C:/Users/samsung/Desktop/KOPIS/2차 코드/db제공_지하철.csv', encoding = 'UTF-8')
+
+# 변수명 변경
+colnames(subway) <- c('주소', '공연시설코드', '좌석수', '위도', '경도', '지하철역개수')
+
+# 필요한 변수만 남기기
+subway <- subway %>%
+  select(공연시설코드, 지하철역개수)
+
+# 공영주차장 개수 데이터프레임 load
+parking <- data.table::fread('C:/Users/samsung/Desktop/KOPIS/2차 코드/db제공_주차장.csv', encoding = 'UTF-8')
+
+# 변수명 변경
+colnames(parking) <- c('주소', '공연시설코드', '좌석수', '위도', '경도', '주차장개수')
+
+# 필요한 변수만 남기기
+parking <- parking %>%
+  select(공연시설코드, 주차장개수)
+
+# 각 변수 공연시설코드를 기준으로 정렬해 row의 순서 맞추기
+bus <- bus %>%
+  arrange(공연시설코드)
+
+subway <- subway %>%
+  arrange(공연시설코드)
+
+parking <- parking %>%
+  arrange(공연시설코드)
+
+# 교통 관련 변수를 모아 하나의 데이터프레임 생성
+bus_subway_parking <- bus %>%
+  mutate(지하철역개수 = subway$지하철역개수) %>%
+  mutate(주차장개수 = parking$주차장개수)
+
+# 교통 관련 변수 데이터프레임 저장
+write.csv(bus_subway_parking, 'C:/Users/samsung/Desktop/KOPIS/2차 코드/db제공_교통관련.csv')
+
+# 데이터에서 변수를 모두 빼고 공연장에 대한 정보만 남은 데이터프레임 따로 생성
+stage_all <- bus_subway_parking %>%
+  select(공연시설코드, 좌석수, 위도, 경도, 주소)
+
+# 주소 오류가 발견된 row 중 오류표기 row 삭제
+stage_all <- stage_all[-38,]
+
+stage_all <- stage_all[-152,]
+
+# 오류가 수정된 공연장 데이터프레임 따로 저장
+write.csv(stage_all, 'C:/Users/samsung/Desktop/KOPIS/2차 코드/db제공_공연장.csv')
+
+# 교통 관련 변수 데이터프레임에서도 해당 row 삭제
+bus_subway_parking <- bus_subway_parking[c(-38, -153),]
+
+# 교통 관련 변수 데이터프레임 다시 저장
+write.csv(bus_subway_parking, 'C:/Users/samsung/Desktop/KOPIS/2차 코드/db제공_교통관련.csv')
+```
+
+
+## 1-2. 다른 데이터프레임과 병합 후 저장
+```{r}
+# 데이터프레임 병합을 위해 다른 변수를 담은 데이터 프레임 Load
+
+# 문화단체종사자
+culture <- data.table::fread('C:/Users/samsung/Downloads/공연장_문화단체종사자_점수.csv', encoding = 'UTF-8')
+
+# 교육수준
+edu <- data.table::fread('C:/Users/samsung/Downloads/공연장_교육수준_점수.csv', encoding = 'UTF-8')
+
+# 공연시설 주변 아파트 및 연립주택 거래금 중앙값
+trans_mid <- data.table::fread('C:/Users/samsung/Downloads/공연시설기준_거래금중앙값.csv', encoding = 'UTF-8')
+
+# 공연시설 반경 면적 기준 grdp
+grdp <- data.table::fread('C:/Users/samsung/Downloads/FA_GRDP.csv', encoding = 'UTF-8')
+
+# 반경내 상권 매출 및 개수
+shop <- data.table::fread('C:/Users/samsung/Downloads/586개 반경내 매출 및 상권 개수.csv', encoding = 'UTF-8')
+
+# 반경내 상권 매출 및 개수 데이터프레임에서 필요한 column만 추출
+shop <- shop[,c(2, 6, 7, 8, 9, 10, 11, 12)]
+
+# 반경내 상권 매출 및 개수 데이터프레임을 공연시설 기준으로 정렬
+shop <- shop %>%
+  arrange(공연시설코드)
+
+# 공연시설 반경 면적 기준 grdp 데이터프레임 전처리
+grdp <- grdp %>%
+  
+  # 필요한 column만 추출
+  select(공연시설, 반경내_GRDP) %>%
+  
+  # 공연시설 column 이름 변경
+  rename('공연시설코드' = 공연시설) %>%
+  
+  # 공연시설 기준으로 정렬
+  arrange(공연시설코드)
+
+# 공연시설 주변 아파트 및 연립주택 거래금 중앙값 데이터프레임 전처리
+trans_mid <- trans_mid %>%
+  
+  # 필요한 column만 추출
+  select(공연시설, 반경내거래수, 거래금중앙값) %>%
+  
+  # 공연시설 column 이름 변경
+  rename('공연시설코드' = 공연시설) %>%
+  
+  # 공연시설 기준으로 정렬
+  arrange(공연시설코드)
+
+# 교육수준 데이터프레임 전처리
+edu <- edu %>%
+  
+  # 필요한 column만 추출
+  select(공연시설, 교육수준) %>%
+  
+  # 공연시설 column 이름 변경
+  rename('공연시설코드' = 공연시설) %>%
+  
+  # 공연시설 기준으로 정렬
+  arrange(공연시설코드)
+
+# 문화단체종사자 데이터프레임 전처리
+culture <- culture %>%
+  
+  # 필요한 column만 추출
+  select(공연시설, 문화단체종사자점수) %>%
+  
+  # 공연시설 column 이름 변경
+  rename('공연시설코드' = 공연시설) %>%
+  
+  # 공연시설 기준으로 정렬
+  arrange(공연시설코드)
+
+# 교통 관련 데이터프레임에서 앞서 전처리한 변수들을 새로운 column으로 추가
+FA_data2 <- bus_subway_parking %>%
+  mutate(반경내_GRDP = grdp$반경내_GRDP) %>%
+  mutate(반경내거래수 = trans_mid$반경내거래수) %>%
+  mutate(거래금중앙값 = trans_mid$거래금중앙값) %>%
+  mutate(카페개수 = shop$카페개수) %>%
+  mutate(술집개수 = shop$술집개수) %>%
+  mutate(일반음식점개수 = shop$일반음식점개수) %>%
+  mutate(반경내_면적대비_술집매출액 = shop$반경내_면적대비_술집매출액) %>%
+  mutate(반경내_면적대비_일반음식점매출액 = shop$반경내_면적대비_일반음식점매출액) %>%
+  mutate(반경내_면적대비_카페매출액 = shop$반경내_면적대비_카페매출액) %>%
+  mutate(반경내_면적대비_총생활인구 = shop$반경내_면적대비_총생활인구) %>%
+  mutate(교육수준 = edu$교육수준) %>%
+  mutate(문화단체종사자점수 = culture$문화단체종사자점수)
+
+# 최종 데이터프레임 저장
+write.csv(FA_data2, 'C:/Users/samsung/Desktop/KOPIS/2차 코드/FA_data2.csv')
+```

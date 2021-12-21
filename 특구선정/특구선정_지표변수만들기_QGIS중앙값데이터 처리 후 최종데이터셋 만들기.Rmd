@@ -1,0 +1,22 @@
+---
+title: "아파트 연립주택 합치기"
+author: "Hyungyeong Hong"
+date: "9/4/2021"
+output: html_document
+---
+# 1. 기본 세팅: working directory 변경 및 필요한 라이브러리 불러오기
+```{r}
+setwd("/Users/hyungyeonghong/Desktop/kopis/지표")
+library(tidyverse)
+library(data.table)
+```
+
+# 2. QGIS에서 합친 데이터에서 필요한 칼럼만 추출 및 칼럼명 변경
+* QGIS를 통해 얻은 부동산 거래금 중앙값 데이터에서 필요한 칼럼(통계량 포함)만 뽑아옵니다.
+* 인코딩 오류로 인해 칼럼명을 다시 지정해줍니다.
+```{r}
+realestate <- fread("실거래가_median.csv")
+realestate <- realestate %>% select('공연시�', 위도, 경도, '거래금�_count', '거래금�_median')
+colnames(realestate) <- c("공연시설", "위도", "경도", "반경내거래수", "거래금중앙값")
+realestate %>% write.csv("공연시설기준_거래금중앙값.csv", row.names = FALSE)
+```

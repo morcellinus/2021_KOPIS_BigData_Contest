@@ -1,0 +1,129 @@
+---
+title: "Untitled"
+author: "Ko"
+date: '2021 8 13 '
+output: html_document
+---
+
+*설명*
+문화격차를 고려하기 위해 자치구별 15시-21시 총승하차객수를 정리하는 코드 파일입니다.
+15시-21시는 무용, 국악 공연 시간의 1사분위수와 3사분위수값 사이의 시간대입니다.
+지하철 역 정보의 좌표를 통해 주소를 추출하고 주소로부터 자치구를 추출해 자치구별로 총승하차객수를 계산합니다.
+
+
+# 기본 세팅 (패키지, API KEY, 데이터 로드)
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(data.table)
+library(jsonlite)
+library(httr)
+
+# 카카오 API KEY 저장
+kakao_api = "KAKAO_API_KEY"
+
+load("data/rda/subway.rda") # 2020년 서울시 지하철 월별 시간대별 역별 총승하차객수
+subway_coord = fread("data/csv/station_coordinate.csv", encoding = "UTF-8") # 서울시 지하철역명 및 호선, 위경도 정보
+```
+
+
+
+```{r}
+# 주소 상 서울 내의 지하철역 임에도 좌표가 기입되어 있지 않은(NA로 표기) 9호선 6개의 역을 구글 지도를 이용하여 좌표를 입력해줌
+subway_coord[subway_coord$name == "송파나루", "lat"] = 37.5104532
+subway_coord[subway_coord$name == "송파나루", "lng"] = 127.1093837
+
+subway_coord[subway_coord$name == "석촌고분", "lat"] = 37.5048754
+subway_coord[subway_coord$name == "석촌고분", "lng"] = 127.0947995
+
+subway_coord[subway_coord$name == "한성백제", "lat"] = 37.516421
+subway_coord[subway_coord$name == "한성백제", "lng"] = 127.1140593
+
+subway_coord[subway_coord$name == "삼전", "lat"] = 37.503873
+subway_coord[subway_coord$name == "삼전", "lng"] = 127.0868753
+
+subway_coord[subway_coord$name == "중앙보훈병원", "lat"] = 37.5268002
+subway_coord[subway_coord$name == "중앙보훈병원", "lng"] = 127.1454439
+
+subway_coord[subway_coord$name == "둔촌오륜", "lat"] = 37.5183046
+subway_coord[subway_coord$name == "둔촌오륜", "lng"] = 127.127669
+
+# 이외 좌표 정보가 NA인 것들은 서울 지역 외의 지하철역이었기 때문에 분석에 사용하지 않을 것임. > 제거
+subway_coord = subway_coord %>% filter(!is.na(lat))
+```
+
+
+```{r}
+# 좌표로 주소를 받아오고, 이를 저장하기 위한 임시 데이터 프레임 선언
+tmp_df = data.frame(long = NA, lat = NA, 주소 = NA)
+
+# 지하철역의 자치구 정보가 필요했기 때문에 706개 지하철역의 좌표를 이용해 주소 추출 (KAKAO API 이용)
+for (i in 1:nrow(subway_coord)){
+  
+  lat = subway_coord$lat[i]
+  long = subway_coord$lng[i]
+  
+  # 직접 구현한 (좌표로부터 주소 추출하는) 함수로 주소 저장 
+  tmp = get_addr_from_coord(long,lat, kakao_api)
+  tmp_df = rbind(tmp_df, tmp)
+}
+
+# 위의 임시 데이터와 기존 좌표만 존재했던 데이터를 join해줌으로써 역별로 주소정보까지 삽입, 중복데이터 제거를 위해 distinct 사용
+subway_coord = left_join(subway_coord, tmp_df, by = c("lat", "lng"="long")) %>% distinct()
+
+# 지하철 승하차객 데이터에는 '서울역'이라고 표시되어 있지만, 기존 지하철 좌표 정보 데이터에는 서울역이 '서울'이라고 표시 되어 있어 이를 통일시켜줌
+subway_coord[subway_coord$name == "서울", "name"] = "서울역"
+```
+
+
+```{r}
+
+# 서울시 25개 자치구 목록
+seoul_gu = c("강남구","강동구","강북구","강서구","관악구","광진구","구로구","금천구","노원구","도봉구","동대문구","동작구","마포구","서대문구",
+                    "서초구","성동구","성북구","송파구","양천구","영등포구","용산구","은평구","종로구","중구","중랑구")
+
+
+
+#좌표로 행정동 주소 전체 받아오는 함수
+get_addr_from_coord <- function(long, lat, kakao_api) {
+  
+  data_list <-
+    GET(url = 'https://dapi.kakao.com/v2/local/geo/coord2regioncode.json?input_coord=WGS84&output_coord=WGS84',
+        query = list(x=long,
+                     y=lat),
+        add_headers(Authorization = paste0("KakaoAK ", kakao_api))) %>% 
+    content(as = 'text') %>% 
+    fromJSON()
+  
+  dong_df <- tibble(long = long,
+                    lat = lat,
+                    주소 = data_list$documents$address_name[2])
+  return(dong_df)
+}
+
+
+
+
+
+# 자치구별 2020년 지하철 총승하차객 데이터 만드는 과정
+gu_subway_people = subway %>% 
+  mutate(지하철역 = str_extract(지하철역, "(\\w)+")) %>% # 부역명이 괄호() 내의 존재하는 경우가 있어 부역명은 제거 
+  left_join(subway_coord %>% dplyr::select(-line, -code), by = c("지하철역"="name")) %>% # 지하철역 좌표 정보와 지하철 승하차객 수 데이터 합침
+  distinct() %>% # 중복 데이터 제거
+  mutate(자치구 = str_extract(주소, "\\w+구")) %>% # 주소에서 자치구만 추출하여 '자치구' 열 생성
+  filter(!is.na(자치구)) %>% # 경기도의 경우는 ㅇㅇ구 라는 주소가 없는 경우가 있어 '자치구' 열을 만들지 못함. 따라서 이를 제거해줌으로써 일부 경기도의 지하철역 승하차객은 제거
+  mutate(총승하차인원 = `15시-16시 승차인원` + `16시-17시 승차인원` + 
+                 `17시-18시 승차인원` + `18시-19시 승차인원` + 
+                 `19시-20시 승차인원` + `20시-21시 승차인원` + 
+                 `15시-16시 하차인원` + `16시-17시 하차인원` + 
+                 `17시-18시 하차인원` + `18시-19시 하차인원` + 
+                 `19시-20시 하차인원` + `20시-21시 하차인원`,
+               .keep  = "unused") %>% # 역별로 15-21시 총승하차객수 합산
+  group_by(자치구) %>% 
+  summarise(총승하차인원 = sum(총승하차인원)) %>% # 자치구별로 총승하차객수 합산
+  filter(자치구 %in% seoul_gu) # 서울 내의 자치구만 남김
+
+# 데이터 저장
+write_csv(gu_subway_people, "data/csv/서울시 자치구별 지하철 총승하차객수(2020년, 15시-21시).csv")
+```
+
+

@@ -1,0 +1,126 @@
+---
+title: "census"
+author: "Hyungyeong Hong"
+date: "9/3/2021"
+output: html_document
+---
+
+# 1. 기본 세팅
+## (1) working directory 설정 및 필요한 패키지 불러오기
+```{r}
+setwd("/Users/hyungyeonghong/Desktop/kopis/지표")
+library(tidyverse)
+library(data.table)
+```
+
+## (2) 인구주택총조사 데이터 불러오기
+```{r}
+census_data <- fread("census.csv")
+```
+
+# 2. 데이터 필터링 및 칼럼명 변경
+
+## (1) 서울시 데이터만 추출
+* 인구주택총조사 데이터는 전국 단위이므로 서울시에 해당하는 row들만 필터링합니다.
+```{r}
+seoul_idx <- which(census_data[,2] == 11)
+```
+
+```{r}
+census_seoul_data <- census_data[seoul_idx, ]
+```
+
+## (2) 칼럼명 수정
+* 칼럼명의 특수기호는 분석 시 오류의 원인이 되므로 칼럼명을 변경해줍니다.
+```{r}
+census_seoul_data %>% colnames
+```
+
+```{r}
+new_colnames <- colnames(census_seoul_data)
+new_colnames[2] <- "시도코드"
+new_colnames[3] <- "시군구코드"
+new_colnames[9] <- "교육정도_학력"
+new_colnames[10] <- "교육정도_상태"
+new_colnames[11] <- "사회활동_문화분야단체"
+new_colnames
+```
+
+```{r}
+colnames(census_seoul_data) <- new_colnames
+census_seoul_data
+```
+
+## (3) 시군구 코드 변경
+* 원 데이터는 서울시의 자치구에 코드가 부여되어 있습니다.
+* 분석의 효율성을 위해 해당 코드를 모두 자치구의 이름으로 변경합니다.
+```{r}
+census_seoul_data$시군구코드 <- as.character(census_seoul_data$시군구코드)
+```
+
+```{r}
+census_seoul_data$시군구코드 <- plyr::revalue(census_seoul_data$시군구코드, c("10" = "종로구", "20" = "중구", "30" = "용산구", "40" = "성동구", "50" = "광진구", "60" = "동대문구", "70" = "중랑구", "80" = "성북구", "90" = "강북구", "100" = "도봉구", "110" = "노원구", "120" = "은평구", "130" = "서대문구", "140" = "마포구", "150" = "양천구", "160" = "강서구", "170" = "구로구", "180" = "금천구", "190" = "영등포구", "200" = "동작구", "210" = "관악구", "220" = "서초구", "230" = "강남구", "240" = "송파구", "250" = "강동구"))
+```
+
+```{r}
+census_seoul_data
+```
+
+# 3. 각 자치구 정보 요약
+
+## (1) 각 자치구별로 표본의 수 계산
+* 각 자치구 별 문화단체종사자비율, 대학 이상 학력 비율을 계산하기 위해 각 자치구 별로 표본의 수를 계산합니다.
+```{r}
+gu_samples_count <- census_seoul_data %>% group_by(시군구코드) %>% summarise(count = n())
+```
+
+## (2) 각 자치구별 대학 이상 학력자 수 계산
+* 자치구, 학력, 교육상태로 그룹화를 진행하여 각 자치구별로 해당 표본이 몇 명 존재하는지 계산합니다.
+```{r}
+gu_edu_count <- census_seoul_data %>% group_by(시군구코드, 교육정도_학력, 교육정도_상태) %>% summarise(count = n())
+```
+
+* 대학 이상의 학력 수준을 가진 표본의 수를 각 자치구별로 계산합니다.
+```{r}
+gu_univ_count <- census_seoul_data %>% filter(교육정도_학력 >= 5) %>% group_by(시군구코드) %>% summarise(count = n())
+```
+
+* 칼럼명을 변경해준 후 자치구 이름을 기준으로 전체 표본 데이터와 대학 이상 학력자 데이터를 join 합니다.
+```{r}
+gu_univ_count <- gu_univ_count %>% rename(대학 = count)
+```
+
+```{r}
+gu_samples_count <- gu_samples_count %>% rename(표본수 = count)
+```
+
+```{r}
+gu_univ_ratio <- full_join(gu_samples_count, gu_univ_count)
+```
+
+* 각 자치구의 표본 중에서 대학 이상의 학력자 비율을 계산한 후 하나의 칼럼으로 저장합니다.
+```{r}
+gu_univ_ratio <- gu_univ_ratio %>% mutate(대학인구비율 = 대학 / 표본수)
+```
+
+```{r}
+gu_univ_ratio %>% write.csv("gu_univ_ratio.csv", row.names = FALSE)
+```
+
+## (3) 각 자치구별 문화분야단체 종사자 수
+
+* 각 자치구 별로 문화분야단체 종사자 수를 계산합니다.
+```{r}
+gu_culture_count <- census_seoul_data %>% filter(사회활동_문화분야단체 == 1) %>% group_by(시군구코드) %>% summarise(문화분야단체종사자수 = n())
+```
+
+* 전체 표본 수 데이터와 문화분야단체 종사자 수 데이터를 자치구 이름을 기준으로 join합니다.
+* 각 자치구의 표본 중에서 문화분야단체 종사자 비율을 계산한 후 하나의 칼럼으로 저장합니다.
+```{r}
+gu_culture_count <- left_join(gu_culture_count, gu_samples_count, by = "시군구코드")
+gu_culture_count <- gu_culture_count %>% mutate(문화분야단체종사자비율 = 문화분야단체종사자수 / 표본수)
+gu_culture_count %>% write.csv("자치구 문화분야단체 종사자 비율.csv", row.names = FALSE)
+```
+
+
+

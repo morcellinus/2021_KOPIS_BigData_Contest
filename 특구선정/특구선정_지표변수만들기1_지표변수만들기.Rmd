@@ -1,0 +1,97 @@
+---
+title: "Untitled"
+author: "Ko"
+date: '2021 9 6 '
+output: html_document
+---
+
+*설명*
+앞서 만들었던 데이터들로 요인 분석을 하는 코드 파일입니다.
+`psych` 패키지를 활용하여 요인 분석을 진행했으며, KMO test를 거쳤고 총 선정된 요인 수는 2개입니다.
+ 
+
+# 0. 기본 세팅
+```{r message=FALSE, warning=FALSE}
+
+# 패키지 로드
+library(tidyverse)
+library(data.table)
+library(psych)
+
+# 데이터 로드
+fa_data = fread("data/FA data/FA_data.csv") 
+```
+
+- 데이터 전처리
+```{r}
+# 데이터 전처리
+fa_var = fa_data %>% 
+  
+  dplyr::select(버스정류장개수:문화단체종사자점수, -반경내거래수) %>% 
+  
+  # 아래 변수들의 자료형이 수치형이 아니라 수치형으로 변경
+  mutate_at(vars("반경내_면적대비_술집매출액", "반경내_면적대비_일반음식점매출액", "반경내_면적대비_카페매출액", "반경내_면적대비_총생활인구"), as.numeric) %>% 
+  
+  # 데이터가 존재하지 않아 NA인 행이 일부 존재했기에 NA를 0으로 대체
+  replace_na(replace = list(거래금중앙값 = 0,
+                           반경내_면적대비_술집매출액  = 0, 
+                           반경내_면적대비_일반음식점매출액 = 0,
+                           반경내_면적대비_카페매출액 = 0,
+                           반경내_면적대비_총생활인구 = 0)) 
+```
+
+
+
+
+# 1. 요인 분석
+```{r}
+
+# KMO test를 통해 FA가 가능한 정도인지 판단 > overall MSA 값이 0.77로 가능한 수준.
+psych::KMO(fa_var)
+
+# 상관계수 행렬의 screeplot을 통해 적절한 요인이 몇 개인지 판단 > 3개가 최적값이지만, 해석을 위해 2개 선택
+data_cor <- cor(fa_var)
+scree(data_cor, factors = FALSE)
+```
+
+
+```{r fig.height=7}
+
+# screeplot과 해석가능성을 고려하여 요인 개수를 2개 설정하고, 회전 요인은 가장 대중적인 varimax로 설정
+FA_result2 = psych::fa(fa_var, nfactors=2, n.obs=N, rotate="varimax")
+
+# Factor 이름 A,B로 설정
+colnames(FA_result2$loadings) <- c("FactorA", "FactorB")
+
+FA_result2
+
+# 요인 분석 결과 시각화
+fa.diagram(FA_result2)
+```
+
+# 2. 요인 분석 결과에 따라 요인 점수(factor score) 생성
+```{r}
+
+# 요인 분석에서 각 요인에 할당되는 변수들의 loading 값을 가중치로 설정
+loadings = unclass(FA_result2$loadings)
+
+# 요인 분석 시 각 변수들의 단위를 무시하고 가중치 역할인 loading의 의미를 살리기 위해 요인 분석에 사용된 각 변수를 스케일링
+# 평균 : 0, 분산 : 1 로 만드는 standard scaling
+fa_var_scaled = scale(fa_var)
+
+# 스케일링된 데이터로 factor A 점수와 factor B 점수 생성
+fa_score = fa_var_scaled %>%
+  as_tibble %>% 
+  mutate(FactorA = 0.524*버스정류장개수 + 0.695*지하철역개수 + 0.590*주차장개수 + 
+           0.954*카페개수 + 0.718*술집개수 + 0.895*일반음식점개수 + 
+           0.948*반경내_면적대비_술집매출액 + 0.853*반경내_면적대비_일반음식점매출액 + 0.896*반경내_면적대비_카페매출액 + 0.622*반경내_면적대비_총생활인구,
+         FactorB = 0.858*반경내_GRDP + 0.369*거래금중앙값 + 0.743*교육수준 + 0.924*문화단체종사자점수) %>% 
+  dplyr::select(FactorA, FactorB)
+
+# 공연시설별로 factor A 점수와 factor B 점수 변수 생성
+fa_score = cbind(fa_data %>% select(주소, 공연시설코드, 위도, 경도),fa_score)
+
+# 저장
+write_csv(fa_score, "data/FA data/FA_scaled_score.csv")
+```
+

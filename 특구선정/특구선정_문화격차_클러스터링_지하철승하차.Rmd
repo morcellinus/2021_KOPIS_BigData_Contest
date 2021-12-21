@@ -1,0 +1,35 @@
+---
+title: "Untitled"
+author: "Jinmo Lee"
+date: '2021 8 12 '
+output: html_document
+---
+
+*설명*
+
+공연 수요를 기대하기 힘든 자치구를 필터링하기 위해 지하철 역별 하차 인원을 뽑아내는 과정입니다.
+
+-지하철 호선별, 역별 시간대별 승하차 인원 정보 데이터를 활용해 2020년의 관측값만 가져와 분석시점과 시기를 맞췄습니다.
+-15시부터 21시까지의 하차인원만을 고려해 공연이 주로 이루어지는 시간대의 하차인원만 고려했습니다. 
+
+```{r}
+
+# 데이터 불러오기
+subway <- data.table::fread('C:/Users/samsung/Downloads/서울시 지하철 호선별 역별 시간대별 승하차 인원 정보.csv')
+
+library(tidyverse)
+
+# 2020년의 관측치만 필터링
+subway <- subway %>%
+  filter(사용월 >=202001 & 사용월 <= 202012)
+
+# 원하는 시간대를 나타내는 칼럼만 남기기
+subway <- subway %>%
+  select(사용월, 호선명, 지하철역, `15시-16시 승차인원`:`20시-21시 하차인원`)
+
+# rda, csv 파일로 저장
+save(subway, file = 'C:/Users/samsung/Desktop/subway.rda')
+
+load('C:/Users/samsung/Desktop/subway.rda')
+```
+

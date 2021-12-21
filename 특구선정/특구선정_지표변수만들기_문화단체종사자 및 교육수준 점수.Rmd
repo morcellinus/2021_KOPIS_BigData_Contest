@@ -1,0 +1,129 @@
+---
+title: "census 데이터 공연시설과 합치기"
+author: "Hyungyeong Hong"
+date: "9/5/2021"
+output: html_document
+---
+
+# 1. 기본 세팅
+
+## (1) working directory 설정 및 패키지 불러오기
+```{r}
+setwd("/Users/hyungyeonghong/Desktop/kopis/지표")
+library(tidyverse)
+library(data.table)
+```
+
+## (2) 공연장 위경도 데이터 불러오기
+```{r}
+sisul <- fread("KOPIS 제공+DB 공연시설 20210905.csv")
+sisul
+```
+
+## (3) 공연시설코드가 이상한 row에 대한 처리 진행
+* 원활한 필터링을 위해 데이터프레임에 인덱스 열을 추가합니다.
+```{r}
+sisul$idx <- 1:588
+sisul %>% filter(공연시설코드 %in% c("FC222351", "FC224284"))
+```
+
+* 공연시설코드가 이상한 row를 필터링합니다.
+```{r}
+sisul <- sisul %>% filter(!idx %in% c(48, 92))
+sisul <- sisul %>% select(-idx)
+sisul
+```
+
+# 2. 버퍼와 자치구의 교차 면적에 따른 수치 산출
+
+## (1) 각 자치구별 교육수준, 문화분야단체 종사자 비율 데이터 불러오기
+```{r}
+gu_univ <- fread("gu_univ_ratio.csv")
+gu_univ <- gu_univ %>% select(시군구코드, 대학인구비율)
+gu_univ
+```
+
+```{r}
+gu_culture <- fread("자치구 문화분야단체 종사자 비율.csv")
+gu_culture
+```
+
+## (2) QGIS를 통해 계산한 각 공연시설기준 버퍼와 자치구 교차 면적 데이터 불러오기
+```{r}
+intersect_area <- fread("total_공연장_자치구영역.csv")
+intersect_area$idx <- 1:990
+intersect_area %>% colnames
+```
+
+* 교차 면적 데이터에서 필요한 칼럼만 뽑아옵니다.
+* 인코딩 오류가 발생한 칼럼명을 변경합니다.
+```{r}
+intersect_area <- intersect_area %>% select('공연시�', 위도, 경도, SIG_KOR_NM, 영역, idx)
+colnames(intersect_area) <- c("공연시설", "위도", "경도", "자치구", "면적", "idx")
+intersect_area %>% filter(공연시설 %in% c("FC222351", "FC224284"))
+intersect_area <- intersect_area %>% filter(!idx %in% c(97, 98, 180, 181))
+intersect_area
+```
+
+* 각 버퍼의 전체 면적을 계산합니다.
+```{r}
+total_area <- intersect_area %>% group_by(공연시설) %>% summarise(전체면적 = sum(면적))
+total_area
+```
+
+* 계산한 전체 면적 칼럼을 공연장코드를 기준으로 교차 면적 데이터와 join해 줍니다,
+* 데이터 병합 이후 전체 면적에서 특정 자치구와의 교차 면적을 계산합니다. 이를 하나의 칼럼으로 저장합니다.
+```{r}
+intersect_area <- left_join(intersect_area, total_area, by = "공연시설")
+intersect_area <- intersect_area %>% mutate(면적비율 = 면적 / 전체면적)
+intersect_area
+```
+
+* 각 자치구의 교육수준 데이터를 자치구이름을 기준으로 join합니다.
+```{r}
+gu_univ <- gu_univ %>% rename(자치구 = 시군구코드)
+intersect_area_univ <- left_join(intersect_area, gu_univ, by = "자치구")
+```
+
+* 전체 버퍼 면적에서 특정 자치구와의 교차 면적이 차지하는 비율을 가중치로 하여 교육수준 점수를 산출합니다.
+```{r}
+intersect_area_univ <- intersect_area_univ %>% mutate(교육수준 = 면적비율 * 대학인구비율)
+intersect_area_univ
+```
+
+* 교육수준 데이터를 공연시설 데이터에서 필요한 칼럼만 뽑아온 데이터에 join 해줍니다
+```{r}
+edu_score <- intersect_area_univ %>% group_by(공연시설) %>% summarise(교육수준 = sum(교육수준))
+selected_cols <- intersect_area_univ %>% select(공연시설, 위도, 경도) %>% distinct
+edu_score <- left_join(selected_cols, edu_score, by = "공연시설")
+edu_score %>% write.csv("공연장_교육수준_점수.csv", row.names = FALSE)
+```
+
+* 각 자치구의 문화단체종사자비율 데이터에서 필요한 칼럼만 뽑아옵니다.
+```{r}
+gu_culture <- gu_culture %>% select(자치구 = 시군구코드, 문화분야단체종사자비율)
+gu_culture
+intersect_area
+```
+
+* 각 자치구의 문화단체종사자비율 데이터를 자치구 이름을 기준으로 join합니다.
+```{r}
+intersect_area_culture <- left_join(intersect_area, gu_culture, by = "자치구")
+intersect_area_culture
+```
+
+* 전체 버퍼 면적에서 특정 자치구와의 교차 면적이 차지하는 비율을 가중치로 하여 문화단체종사자 점수를 산출합니다.
+```{r}
+culture_score <- intersect_area_culture %>% mutate(문화단체종사자점수 = 면적비율 * 문화분야단체종사자비율) %>% group_by(공연시설) %>% summarise(문화단체종사자점수 = sum(문화단체종사자점수))
+culture_score
+```
+
+* 문화단체종사자비율 데이터를 공연시설 데이터에서 필요한 칼럼만 뽑아온 데이터에 join 해줍니다
+```{r}
+culture_score <- left_join(selected_cols, culture_score, by = "공연시설")
+culture_score %>% write.csv("공연장_문화단체종사자_점수.csv", row.names = FALSE)
+```
+
+
+
+
