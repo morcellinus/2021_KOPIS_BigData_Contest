@@ -1,0 +1,76 @@
+---
+title: "특구선정_지표변수만들기_GRDP"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+*설명*
+Factor Analysis를 사용하기 위한 GRDP 데이터를 전처리 하는 과정을 포함하고 있습니다.
+
+# 1. "total_공연장_자치구영역.csv"의 전처리 과정입니다.
+"total_공연장_자치구영역.csv"파일의 경우 qgis를 활용하여 생성한 데이터로 공연장 반경(700m)에 해당하는 자치구 및 면적을 포함하는 데이터입니다.
+
+  1) csv파일을 불러와 stage라는 이름의 데이터 프레임에 할당해 줍니다.
+  2) 현재 작업에 불필요한 변수를 제거하였습니다.
+  3) 변수명의 인코딩 문제로 인식되지 않는 문자가 존재하여 변수명을 변경해주었습니다.
+  4) 같은 공연시설임에도 불구하고 좌표 산정에 오류가 있어 중복으로 포함 된 공연시설의 row를 제거하여 주었습니다.
+  5) 공연시설별 각 버퍼의 전체 면적을 나타내는 변수를 생성하여 "total_area"라는 데이터프레임에 저장해줍니다.
+  6) stage데이터의 row를 각 버퍼의 전체면적을 할당해 주었습니다.
+  7) 해당 row가 총 버퍼 중 차지하는 면적의 비중을 나타내는 "면적비율"변수를 면적/전체면적으로 생성해 주었습니다.
+
+# 2. "GRDP_시_군_구__20210904022235.csv"의 전처리 과정입니다. 해당 데이터는 각 시군구 별 grdp를 나타내는 데이터로 출처는 다음과 같습니다.(https://kosis.kr/search/search.do)
+  1. 분석대상 지역인 서울시만 추출한 후 , 필요한 변수만 선택하여 grdp라는 데이터프레임에 할당해 주었습니다.
+  2. 앞서 생성한 stage 데이터프레임과 grdp데이터 프레임은 left_join을 사용하여 공연장의 자치구 기준으로 두 데이터를 병합하였습니다.
+  3. 전체 버퍼 면적에서 특정 자치구와의 교차 면적이 차지하는 비율을 가중치로 하여 "반경내_grdp" 점수를 산출합니다.
+
+```{r cars}
+#디렉토리 설정 후 필요한 라이브러리를 불러옵니다.
+setwd("E:/KOPIS/grdp코드정리")
+library(dplyr)
+library(tidyverse)
+library(magrittr)
+library(data.table)
+```
+
+# 1. "total_공연장_자치구영역.csv"의 전처리 과정입니다.
+```{r}
+# 1) csv파일을 불러옵니다.
+stage = fread("total_공연장_자치구영역.csv", encoding = "UTF-8")
+# 2) 현재 작업에 불필요한 변수를 제거하였습니다.
+stage = stage[,c(1:5, 8:9)]
+# 3) 변수명의 인코딩 문제로 인식되지 않는 문자가 존재하여 변수명을 변경해주었습니다.
+colnames(stage)<-c("주소","공연시설","좌석수","위도","경도","해당구","면적")
+# 4) 같은 공연시설임에도 불구하고 좌표 산정에 오류가 있어 중복으로 포함 된 공연시설의 row를 제거하여 주었습니다.
+stage = stage[-c(180,181,97,98),]
+# 5) 각 버퍼의 전체 면적을 나타내는 변수를 생성하였습니다.
+total_area<-stage %>% 
+  group_by(공연시설) %>% 
+  summarise("전체면적" = sum(면적))
+# 6) stage데이터의 row를 각 버퍼의 전체면적을 할당해 주었습니다.
+stage = left_join(total_area, stage, by="공연시설")
+# 7) 해당 row가 총 버퍼 중 차지하는 면적의 비중을 나타내는 "면적비율"변수를 면적/전체면적으로 생성해 주었습니다.
+stage %<>% 
+  mutate("면적비율" = 면적/전체면적)
+```
+
+# 2. "GRDP_시_군_구__20210904022235.csv"의 전처리 과정입니다.
+```{r}
+# 1) 분석대상 지역인 서울시만 추출한 후 , 필요한 변수만 선택하여 grdp라는 데이터프레임에 할당해 주었습니다.
+grdp= fread("GRDP_시_군_구__20210904022235.csv")
+grdp %<>% 
+  filter(V1=="서울특별시") %>% 
+  select(V2, V9) %>% 
+  transmute("해당구"=V2, "GRDP"=as.numeric(V9))
+# 2) 앞서 생성한 stage 데이터프레임과 grdp데이터 프레임은 left_join을 사용하여 공연장의 자치구 기준으로 두 데이터를 병합하였습니다.
+grdp_df<-left_join(stage, grdp, by="해당구") %>% 
+  mutate("공연장GRDP"= 면적비율*GRDP)
+# 3) 전체 버퍼 면적에서 특정 자치구와의 교차 면적이 차지하는 비율을 가중치로 하여 "반경내_grdp" 점수를 산출합니다.
+final_grdp<-grdp_df %>%
+  group_by(공연시설, 주소, 위도, 경도) %>% 
+  summarise("반경내_GRDP" = sum(공연장GRDP))
+final_grdp
+#write.csv(final_grdp,"FA_GRDP.csv", fileEncoding = "UTF-8", row.names = FALSE )
+```
+
