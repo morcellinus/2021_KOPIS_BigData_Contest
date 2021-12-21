@@ -8,19 +8,19 @@
 
 [공모전링크](https://kopis.or.kr/por/cs/notice/csNoticeListView.do?ntt_id=1601&listCurPage=1&srchType=subject&srchText=&menuId=MNU_000104)
 
-### `분석 주제`<br>
+#### `분석 주제`<br>
 ***서울시 내 공연특구 지정 정책 제안 - 비주류 공연 장르를 중심으로***<br>
 
-### `팀원`<br>
+#### `팀원 상세`<br>
 | 고경현 (성균관대학교 통계학과)<br>
 | 주혜인 (성균관대학교 통계학과)<br>
 | 홍현경 (성균관대학교 통계학과)<br>
 
-### `사용 Tool`<br>
+#### `사용 Tool`<br>
 <p align="left">
   <img src="https://img.shields.io/badge/R-276DC3?style=flat-square&logo=R&logoColor=white"/></a>&nbsp
   <img src="https://img.shields.io/badge/Python-3766AB?style=flat-square&logo=Python&logoColor=white"/></a>&nbsp
   <img src="https://img.shields.io/badge/QGIS-A0E165?style=flat-square&logo=QGIS&logoColor=white"/></a>&nbsp
 
-### `사용 방법론`<br>
+#### `사용 방법론`<br>
 | K-Means 클러스터링 / 커널밀도분석(KDA) / 파생변수 생성 및 변수 선택 & 검증 / Factor Analysis / 공간회귀(LISA using Moran's I)
