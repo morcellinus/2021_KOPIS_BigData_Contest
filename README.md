@@ -2,7 +2,7 @@
 
 2021년 6월부터 9월까지 진행된<br>
 
-### **제 1회 공연예술통합전산망(KOPI) 빅데이터 분석 경진대회** <br>
+### **제 1회 공연예술통합전산망(KOPIS) 빅데이터 분석 경진대회** <br>
 
 에서 최우수상(1위)을 수상한 데이터 분석 과정과 관련 코드를 담은 Repo입니다. 
 
@@ -21,3 +21,6 @@
   <img src="https://img.shields.io/badge/R-276DC3?style=flat-square&logo=R&logoColor=white"/></a>&nbsp
   <img src="https://img.shields.io/badge/Python-3766AB?style=flat-square&logo=Python&logoColor=white"/></a>&nbsp
   <img src="https://img.shields.io/badge/QGIS-A0E165?style=flat-square&logo=QGIS&logoColor=white"/></a>&nbsp
+
+`사용 방법론`<br>
+| K-Means 클러스터링 / 커널밀도분석(KDA) / 파생변수 생성 및 변수 선택 & 검증 / Factor Analysis / 공간회귀(LISA using Moran's I)
