@@ -6,4 +6,4 @@
 
 에서 최우수상(1위)을 수상한 데이터 분석 과정과 관련 코드를 담은 Repo입니다. 
 
-[관련링크] (https://kopis.or.kr/por/cs/notice/csNoticeListView.do?ntt_id=1601&listCurPage=1&srchType=subject&srchText=&menuId=MNU_000104)
+[관련링크](https://kopis.or.kr/por/cs/notice/csNoticeListView.do?ntt_id=1601&listCurPage=1&srchType=subject&srchText=&menuId=MNU_000104)
